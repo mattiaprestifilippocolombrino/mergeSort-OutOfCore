@@ -31,3 +31,6 @@ install_manifest.txt
 # OS files
 .DS_Store
 Thumbs.db
+
+.codex
+.claude
