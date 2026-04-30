@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
 
     // Parametri principali.
     // I valori di default sono scelti per avere un test realistico ma semplice.
-    std::string output_path = argv[1];
+    std::string outputPath = argv[1];
     uint64_t    N           = std::stoull(argv[2]);
     uint32_t    pmax        = PAYLOAD_MAX;
     uint32_t    pmin        = 8;
@@ -74,8 +74,8 @@ int main(int argc, char* argv[]) {
     if (pmin < 8 || pmin > pmax)
         throw std::runtime_error("payload-min fuori range [8, payload-max]");
 
-    FILE* fout = std::fopen(output_path.c_str(), "wb");
-    if (!fout) throw std::runtime_error("Impossibile creare: " + output_path);
+    FILE* fout = std::fopen(outputPath.c_str(), "wb");
+    if (!fout) throw std::runtime_error("Impossibile creare: " + outputPath);
     // Buffer da 8 MB per scritture veloci.
     // Le fwrite di write_record restano semplici, ma la libc accumula i dati
     // e riduce il numero di chiamate al sistema operativo.
@@ -84,16 +84,16 @@ int main(int argc, char* argv[]) {
     // Usa mt19937_64 per velocità; il payload viene generato con XOR-shift
     // sul seed per evitare N chiamate a uniform_distribution per ogni byte.
     std::mt19937_64 rng(seed);
-    std::uniform_int_distribution<uint64_t> key_rnd;
-    std::uniform_int_distribution<uint32_t> len_rnd(pmin, pmax);
+    std::uniform_int_distribution<uint64_t> keyRnd;
+    std::uniform_int_distribution<uint32_t> lenRnd(pmin, pmax);
 
     // Buffer di payload pre-allocato e garantito allineato a 8 byte.
     // Riempiamo con 64-bit alla volta (8× più veloce dei singoli byte).
     // Poi passiamo a write_record solo i primi len byte.
-    std::vector<uint64_t> payload_buf((pmax + 7) / 8);
-    char* payload = reinterpret_cast<char*>(payload_buf.data());
+    std::vector<uint64_t> payloadBuf((pmax + 7) / 8);
+    char* payload = reinterpret_cast<char*>(payloadBuf.data());
 
-    std::cout << "Genero " << N << " record → " << output_path << "\n"
+    std::cout << "Genero " << N << " record → " << outputPath << "\n"
               << "  payload_min=" << pmin << "B  payload_max=" << pmax << "B\n";
 
     for (uint64_t i = 0; i < N; i++) {
@@ -105,20 +105,20 @@ int main(int argc, char* argv[]) {
         // std::sort gestisce bene tutti e tre, ma misurarli e' utile.
         if      (sorted)  key = i;
         else if (reverse) key = N - 1 - i;
-        else              key = key_rnd(rng);
+        else              key = keyRnd(rng);
 
-        uint32_t len = len_rnd(rng);
+        uint32_t len = lenRnd(rng);
 
         // Riempie il payload 8 byte alla volta (loop vectorizzabile).
         uint32_t n64 = len / 8;
         for (uint32_t b = 0; b < n64; b++)
-            payload_buf[b] = rng();
+            payloadBuf[b] = rng();
         // Riempie i byte rimanenti (0..7).
         uint64_t tail = rng();
         std::memcpy(payload + n64 * 8, &tail, len % 8);
 
         // Scrittura nel formato comune del progetto.
-        write_record(fout, key, len, payload);
+        writeRecord(fout, key, len, payload);
 
         // Progress minimale: comodo per file grandi, ma senza stampare a ogni
         // record per non rallentare la generazione.
@@ -128,6 +128,6 @@ int main(int argc, char* argv[]) {
     if (N >= 1'000'000) std::cout << "\n";
 
     std::fclose(fout);
-    std::cout << "File generato: " << output_path << " (" << N << " record)\n";
+    std::cout << "File generato: " << outputPath << " (" << N << " record)\n";
     return 0;
 }

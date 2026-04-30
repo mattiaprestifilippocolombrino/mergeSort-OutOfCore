@@ -29,9 +29,9 @@
 //   FastFlow bilancia automaticamente il carico con la coda SPSC lock-free.
 //   I Worker ordinano il chunk e scrivono la run su disco.
 //
-// FASE 2  —  kway_merge()   [kway_merger.hpp]
-//   Identica alla versione OMP: K-way merge multi-pass con fan-in limitato.
-//   I gruppi indipendenti di una passata possono essere fusi in parallelo.
+// FASE 2  —  ff_kway_merge()   [ff_kway_merger.hpp]
+//   Identica struttura multi-pass della versione OMP, ma usa ff::ParallelFor
+//   al posto di #pragma omp task: nessun conflitto di CPU affinity con la farm.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // DIFFERENZA RISPETTO ALLA VERSIONE OMP
@@ -40,14 +40,15 @@
 //   FF Farm:      code lock-free SPSC; overhead di comunicazione ≈ ns
 //                 Il thread Emitter non entra in regioni parallele:
 //                 tutta la lettura è sul thread Emitter, zero contesa.
+//   FF ParallelFor: nessun conflitto di CPU affinity tra Fase 1 e Fase 2;
+//                 un solo runtime FF gestisce entrambe le fasi.
 //
 // =============================================================================
 
 #include "ff_chunk_sorter.hpp"  // ff_sort_to_runs()
-#include "kway_merger.hpp"       // kway_merge()
+#include "ff_kway_merger.hpp"    // ff_kway_merge()
 #include "temp_dir.hpp"
 
-#include <omp.h>
 #include <ff/ff.hpp>
 #include <iostream>
 #include <string>
@@ -77,17 +78,17 @@ int main(int argc, char* argv[]) {
 
     // Parametri di default.
     // Uso max core - 1 worker per lasciare un thread all'Emitter che legge.
-    std::string input_path  = argv[1];
-    std::string output_path = argv[2];
-    std::string tmp_dir     = "/tmp";
-    size_t      chunk_mb    = 256;
-    int         merge_fan   = 64;
-    bool        keep_runs   = false;
+    std::string inputPath  = argv[1];
+    std::string outputPath = argv[2];
+    std::string tmpDir     = "/tmp";
+    size_t      chunkMb    = 256;
+    int         mergeFan   = 64;
+    bool        keepRuns   = false;
 
     // ff_numCores() restituisce il numero di core logici disponibili.
     // Riservo 1 core per l'Emitter, assegno gli altri ai Worker.
-    int available_cores = static_cast<int>(ff_numCores());
-    int nworkers        = std::max(1, available_cores - 1);
+    int availableCores = static_cast<int>(ff_numCores());
+    int nWorkers        = std::max(1, availableCores - 1);
 
     // Parsing volutamente speculare alla versione OpenMP.
     // Cosi' posso lanciare benchmark comparabili cambiando solo l'eseguibile.
@@ -95,40 +96,37 @@ int main(int argc, char* argv[]) {
         std::string a = argv[i];
 
         if (a == "--chunk-mb" && i + 1 < argc) {
-            chunk_mb = std::stoul(argv[++i]);
+            chunkMb = std::stoul(argv[++i]);
         } else if (a == "--workers" && i + 1 < argc) {
-            nworkers = std::stoi(argv[++i]);
+            nWorkers = std::stoi(argv[++i]);
         } else if (a == "--tmp-dir" && i + 1 < argc) {
-            tmp_dir = argv[++i];
+            tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
-            merge_fan = std::stoi(argv[++i]);
+            mergeFan = std::stoi(argv[++i]);
         } else if (a == "--keep-runs") {
-            keep_runs = true;
+            keepRuns = true;
         } else {
             usage(argv[0]);
         }
     }
 
-    if (chunk_mb == 0) {
+    if (chunkMb == 0) {
         std::cerr << "[WARN] --chunk-mb 0 non valido, imposto a 1\n";
-        chunk_mb = 1;
+        chunkMb = 1;
     }
 
-    // omp_set_num_threads limita anche i thread usati durante il merge (Fase 2).
-    omp_set_num_threads(nworkers);
-
-    const size_t chunk_bytes = chunk_mb * 1024ULL * 1024ULL;
+    const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL;
 
     // Directory temporanea unica per questa esecuzione FastFlow.
-    TempDir work_tmp(tmp_dir, "spm_ff", keep_runs);
+    TempDir workTmp(tmpDir, "spm_ff", keepRuns);
 
     std::cout << "=== FastFlow MergeSort out-of-core ===\n"
-              << "  input        : " << input_path     << "\n"
-              << "  output       : " << output_path    << "\n"
-              << "  chunk        : " << chunk_mb       << " MB\n"
-              << "  workers      : " << nworkers       << "\n"
-              << "  merge fan-in : " << merge_fan      << "\n"
-              << "  tmp          : " << work_tmp.str() << "\n"
+              << "  input        : " << inputPath     << "\n"
+              << "  output       : " << outputPath    << "\n"
+              << "  chunk        : " << chunkMb       << " MB\n"
+              << "  workers      : " << nWorkers       << "\n"
+              << "  merge fan-in : " << mergeFan      << "\n"
+              << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -138,7 +136,7 @@ int main(int argc, char* argv[]) {
 
     // ff_sort_to_runs implementa la fase 1 con una farm FastFlow.
     std::vector<std::string> runs =
-        ff_sort_to_runs(input_path, work_tmp.str(), chunk_bytes, nworkers);
+        ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     std::cout << "Fase 1 (sort FF): " << runs.size() << " run create in "
@@ -150,18 +148,14 @@ int main(int argc, char* argv[]) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // FASE 2: K-way merge multi-pass → file di output
-    // Nota: la fase di merge è comune a entrambe le versioni (OMP e FF).
+    // FASE 2: K-way merge multi-pass → file di output (FastFlow ParallelFor)
     // ─────────────────────────────────────────────────────────────────────────
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
 
-    // La fase di merge e' condivisa con OpenMP: tuttavia, per evitare che la
-    // thread affinity impostata da FastFlow confini i thread OpenMP su un singolo core
-    // (causando lock contention e crollo delle prestazioni), disabilitiamo il
-    // parallelismo OpenMP in questa specifica chiamata.
-    bool delete_runs   = !keep_runs;
-    bool parallel_merge = false; // merge parallelo disabilitato per compatibilità con FF
-    kway_merge(runs, output_path, merge_fan, delete_runs, parallel_merge);
+    // ff_kway_merge usa ff::ParallelFor internamente: nessun conflitto di
+    // CPU affinity con la farm usata nella Fase 1. Un solo runtime FF.
+    bool deleteRuns = !keepRuns;
+    ffKwayMerge(runs, outputPath, nWorkers, mergeFan, deleteRuns);
 
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
 

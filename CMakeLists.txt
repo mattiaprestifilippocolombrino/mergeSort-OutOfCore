@@ -66,6 +66,7 @@ add_executable(verify common/src/verify.cpp)
 
 # ─── Versione OpenMP (Single Node) ────────────────────────────────────────────
 add_executable(omp_sort omp/src/omp_sort.cpp)
+target_include_directories(omp_sort PRIVATE omp/include)
 target_link_libraries(omp_sort PRIVATE OpenMP::OpenMP_CXX)
 
 # ─── Versione FastFlow (Single Node) ──────────────────────────────────────────
@@ -73,7 +74,8 @@ if(FF_FOUND)
     add_executable(ff_sort fastflow/src/ff_sort.cpp)
     target_include_directories(ff_sort PRIVATE ${FF_INCLUDE_DIR})
     target_compile_definitions(ff_sort PRIVATE BLOCKING_MODE)
-    target_link_libraries(ff_sort PRIVATE pthread OpenMP::OpenMP_CXX)
+    target_compile_options(ff_sort PRIVATE -Wno-unknown-pragmas -Wno-unused-parameter)
+    target_link_libraries(ff_sort PRIVATE pthread)
 endif()
 
 # ─── Versione MPI + OpenMP (Distributed) ──────────────────────────────────────

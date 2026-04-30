@@ -53,110 +53,106 @@ using namespace ff;
 //   - il tipo di dato che invia e' ChunkData*
 struct FFEmitter : ff_monode_t<ChunkData> {
     FILE*                     fin;         // file di input aperto
-    const std::string&        tmp_dir;     // directory per le run
-    size_t                    chunk_bytes; // dimensione massima di ogni chunk
-    std::vector<std::string>& run_paths;   // accumulatore dei path delle run create
-    std::atomic<bool>&        error_flag;  // flag condiviso per segnalare errori
+    const std::string&        tmpDir;     // directory per le run
+    size_t                    chunkBytes; // dimensione massima di ogni chunk
+    std::vector<std::string>& runPaths;   // accumulatore dei path delle run create
+    std::atomic<bool>&        errorFlag;  // flag condiviso per segnalare errori
 
     FFEmitter(FILE*                    f,
               const std::string&       td,
               size_t                   cb,
               std::vector<std::string>& rp,
               std::atomic<bool>&        ef)
+        : fin(f), tmpDir(td), chunkBytes(cb), runPaths(rp), errorFlag(ef)
     {
-        fin         = f;
-        tmp_dir     = td;   // riferimento: non fa copia
-        chunk_bytes = cb;
-        run_paths   = rp;   // riferimento: non fa copia
-        error_flag  = ef;   // riferimento: non fa copia
     }
 
     // svc() e' il metodo chiamato da FastFlow quando il nodo deve fare lavoro.
     // Parametro: non usato per l'emitter (non ha input), restituisce EOS per segnalare
     // la fine della produzione.
     ChunkData* svc(ChunkData* /*unused*/) override {
-        int run_id = 0;
+        int runId = 0;
 
         while (true) {
             // Se un worker ha segnalato errore, interrompo la produzione.
-            if (error_flag.load(std::memory_order_relaxed)) {
+            if (errorFlag.load(std::memory_order_relaxed)) {
                 break;
             }
 
             ChunkData* chunk  = nullptr;
-            bool eof_reached  = false;
+            bool eofReached  = false;
 
             try {
                 // Preparo un nuovo chunk da inviare alla farm.
                 chunk              = new ChunkData();
-                chunk->buffer      = new char[chunk_bytes];
-                chunk->error_flag  = &error_flag;
-                size_t buf_used    = 0;
+                chunk->buffer      = new char[chunkBytes];
+                chunk->errorFlag  = &errorFlag;
+                size_t bufUsed    = 0;
 
-                size_t estimated_records = chunk_bytes / (HEADER_SIZE + 64);
-                chunk->index.reserve(estimated_records);
+                size_t estimatedRecords = chunkBytes / (HEADER_SIZE + 64);
+                chunk->index.reserve(estimatedRecords);
 
                 while (true) {
                     // Leggo record completi finche' il chunk ha spazio.
                     RecordHeader hdr;
-                    bool got_record = read_header(fin, hdr);
+                    bool gotRecord = readHeader(fin, hdr);
 
-                    if (!got_record) {
-                        eof_reached = true;
+                    if (!gotRecord) {
+                        eofReached = true;
                         break;
                     }
 
-                    size_t total_record_size = HEADER_SIZE + hdr.len;
+                    size_t totalRecordSize = HEADER_SIZE + hdr.len;
 
                     // Il record non entra nel chunk corrente: torno indietro.
-                    if (buf_used + total_record_size > chunk_bytes) {
+                    if (bufUsed + totalRecordSize > chunkBytes) {
                         fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR);
                         break;
                     }
 
                     // Copio header e payload nel buffer del chunk.
-                    size_t rec_offset = buf_used;
-                    std::memcpy(chunk->buffer + buf_used,     &hdr.key, sizeof(uint64_t));
-                    std::memcpy(chunk->buffer + buf_used + 8, &hdr.len, sizeof(uint32_t));
-                    buf_used += HEADER_SIZE;
+                    size_t recOffset = bufUsed;
+                    std::memcpy(chunk->buffer + bufUsed,     &hdr.key, sizeof(uint64_t));
+                    std::memcpy(chunk->buffer + bufUsed + 8, &hdr.len, sizeof(uint32_t));
+                    bufUsed += HEADER_SIZE;
 
                     // [OTTIMIZZAZIONE] Uso fread_unlocked per coerenza e velocizzare I/O.
-                    size_t bytes_read = fread_unlocked(chunk->buffer + buf_used, 1, hdr.len, fin);
-                    if (bytes_read != hdr.len) {
-                        error_flag.store(true, std::memory_order_relaxed);
-                        free_chunk(chunk);
+                    size_t bytesRead = fread_unlocked(chunk->buffer + bufUsed, 1, hdr.len, fin);
+                    if (bytesRead != hdr.len) {
+                        errorFlag.store(true, std::memory_order_relaxed);
+                        freeChunk(chunk);
                         return EOS; // segnalo fine al framework FastFlow
                     }
-                    buf_used += hdr.len;
+                    bufUsed += hdr.len;
 
                     // Salvo il descrittore leggero da ordinare.
                     RecordIndex ri;
                     ri.key    = hdr.key;
-                    ri.offset = rec_offset;
+                    ri.offset = recOffset;
                     ri.len    = hdr.len;
                     chunk->index.push_back(ri);
                 }
 
                 // Nessun record letto: EOF.
                 if (chunk->index.empty()) {
-                    free_chunk(chunk);
+                    freeChunk(chunk);
                     break;
                 }
 
-                chunk->run_path = tmp_dir + "/run_" + std::to_string(run_id) + ".bin";
-                run_paths.push_back(chunk->run_path);
-                ++run_id;
+                chunk->runPath = tmpDir + "/run_" + std::to_string(runId) + ".bin";
+                runPaths.push_back(chunk->runPath);
+                ++runId;
 
                 // Invia il puntatore a un worker. Da qui il worker possiede chunk.
                 ff_send_out(chunk);
 
             } catch (...) {
-                error_flag.store(true, std::memory_order_relaxed);
-                free_chunk(chunk);
+                errorFlag.store(true, std::memory_order_relaxed);
+                freeChunk(chunk);
                 break;
             }
 
-            if (eof_reached) {
+            if (eofReached) {
                 break;
             }
         }
@@ -178,7 +174,7 @@ struct FFWorker : ff_node_t<ChunkData> {
     ChunkData* svc(ChunkData* chunk) override {
         // Ordina il chunk e scrive la run su disco.
         // La funzione dealloca chunk internamente quando ha finito.
-        sort_chunk_and_write_run(chunk);
+        sortChunkAndWriteRun(chunk);
 
         // GO_ON dice a FastFlow: "ho finito questo task, sono pronto per il prossimo".
         // Non c'e' un collector, quindi non inviamo dati in uscita.
@@ -188,38 +184,38 @@ struct FFWorker : ff_node_t<ChunkData> {
 
 // Versione FastFlow della generazione delle run.
 // Ritorna i path delle run ordinate esattamente come sort_to_runs.
-inline std::vector<std::string> ff_sort_to_runs(
-    const std::string& input_path,
-    const std::string& tmp_dir,
-    size_t             chunk_bytes,
-    int                nworkers)
+inline std::vector<std::string> ffSortToRuns(
+    const std::string& inputPath,
+    const std::string& tmpDir,
+    size_t             chunkBytes,
+    int                nWorkers)
 {
-    validate_chunk_bytes(chunk_bytes);
+    validateChunkBytes(chunkBytes);
 
-    FILE* fin = std::fopen(input_path.c_str(), "rb");
+    FILE* fin = std::fopen(inputPath.c_str(), "rb");
     if (fin == nullptr) {
-        throw std::runtime_error("ff_sort_to_runs: impossibile aprire " + input_path);
+        throw std::runtime_error("ff_sort_to_runs: impossibile aprire " + inputPath);
     }
     std::setvbuf(fin, nullptr, _IOFBF, 4 * 1024 * 1024);
 
-    std::vector<std::string> run_paths;
-    run_paths.reserve(64);
-    std::atomic<bool> error_flag{false};
+    std::vector<std::string> runPaths;
+    runPaths.reserve(64);
+    std::atomic<bool> errorFlag{false};
 
     // L'emitter vive sullo stack: la farm usa il puntatore ma non ne prende
     // ownership. I worker invece sono tenuti in unique_ptr per liberarli
     // automaticamente a fine funzione.
-    FFEmitter emitter(fin, tmp_dir, chunk_bytes, run_paths, error_flag);
+    FFEmitter emitter(fin, tmpDir, chunkBytes, runPaths, errorFlag);
 
     // FastFlow vuole un vettore di ff_node*. Io tengo gli oggetti veri in
     // w_owned e passo a FastFlow solo i puntatori grezzi.
     std::vector<std::unique_ptr<FFWorker>> w_owned;
-    w_owned.reserve(nworkers);
+    w_owned.reserve(nWorkers);
 
     std::vector<ff_node*> w_ptrs;
-    w_ptrs.reserve(nworkers);
+    w_ptrs.reserve(nWorkers);
 
-    for (int i = 0; i < nworkers; i++) {
+    for (int i = 0; i < nWorkers; i++) {
         w_owned.push_back(std::make_unique<FFWorker>());
         w_ptrs.push_back(w_owned.back().get());
     }
@@ -238,9 +234,9 @@ inline std::vector<std::string> ff_sort_to_runs(
 
     std::fclose(fin);
 
-    if (error_flag.load()) {
+    if (errorFlag.load()) {
         throw std::runtime_error("ff_sort_to_runs: errore in un worker FastFlow");
     }
 
-    return run_paths;
+    return runPaths;
 }

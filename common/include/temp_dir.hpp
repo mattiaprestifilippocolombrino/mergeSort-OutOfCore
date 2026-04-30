@@ -21,7 +21,7 @@ class TempDir {
     bool                  keep_;    //Se true, la directory non viene cancellata alla fine.
 
 public:
-    TempDir(const std::string& base_dir,
+    TempDir(const std::string& baseDir,
             const std::string& prefix,
             bool keep = false) // Costruttore: base_dir è la directory padre (es: /tmp/spm_bench),
                                  // prefix è un prefisso per il nome della sottodirectory,
@@ -30,28 +30,28 @@ public:
         keep_ = keep;
 
         // Creo la directory base se non esiste, ad esempio /tmp/spm_bench.
-        std::filesystem::create_directories(base_dir);
+        std::filesystem::create_directories(baseDir);
 
         // Uso pid + timestamp + tentativo. 
         // std::chrono::steady_clock::now() restituisce un time_point.
-        std::chrono::steady_clock::time_point  now_tp   = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point  nowTp   = std::chrono::steady_clock::now();
         // .time_since_epoch() lo converte in una durata dall'epoch.
-        std::chrono::steady_clock::duration    duration  = now_tp.time_since_epoch();
+        std::chrono::steady_clock::duration    duration  = nowTp.time_since_epoch();
         // .count() la converte in un intero (in nanosec o tic a seconda della piattaforma).
-        std::chrono::steady_clock::rep         now_count = duration.count();
+        std::chrono::steady_clock::rep         nowCount = duration.count();
 
         // .getpid() restituisce il pid del processo.
         pid_t pid = ::getpid();
 
         for (int attempt = 0; attempt < 100; ++attempt) {
             // Compongo il nome: prefix_PID_TIMESTAMP_TENTATIVO
-            std::string dir_name = prefix
+            std::string dirName = prefix
                 + "_" + std::to_string(pid)
-                + "_" + std::to_string(now_count)
+                + "_" + std::to_string(nowCount)
                 + "_" + std::to_string(attempt);
 
             // Creo il percorso della directory temporanea usando il percorso base e il nome della directory.
-            path_ = std::filesystem::path(base_dir) / dir_name;
+            path_ = std::filesystem::path(baseDir) / dirName;
 
             std::error_code ec;
             // Creo la directory temporanea. create_directory fallisce se il nome esiste gia'.
@@ -63,7 +63,7 @@ public:
         }
 
         throw std::runtime_error(
-            "TempDir: impossibile creare directory temporanea in " + base_dir
+            "TempDir: impossibile creare directory temporanea in " + baseDir
         );
     }
 
@@ -74,8 +74,8 @@ public:
     ~TempDir() {
         // Il distruttore viene chiamato automaticamente quando l’oggetto esce dallo scope.
         // Elimino la directory temporanea se keep_ è false e path_ non è vuoto.
-        bool should_delete = !keep_ && !path_.empty();
-        if (should_delete) {
+        bool shouldDelete = !keep_ && !path_.empty();
+        if (shouldDelete) {
             std::error_code ec;
             std::filesystem::remove_all(path_, ec);
         }

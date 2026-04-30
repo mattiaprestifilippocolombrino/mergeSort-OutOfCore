@@ -50,7 +50,7 @@ Si ha in input un file già aperto da cui leggere e una struttura dove salvare i
 Viene restituitp in output true se l'header viene letto correttamente, false se non viene letto nessun dato.
 */
 
-inline bool read_header(FILE* f, RecordHeader& hdr) {
+inline bool readHeader(FILE* f, RecordHeader& hdr) {
     // Viene utilizzato un buffer locale di 12 byte per leggere key (8B) + len (4B) in una sola operazione.
     uint8_t buf[HEADER_SIZE];
 
@@ -58,15 +58,15 @@ inline bool read_header(FILE* f, RecordHeader& hdr) {
     Si usa fread_unlocked per evitare l'overhead del mutex lock/unlock della libc
     ad ogni singola chiamata, poichè usiamo un solo thread. 
     */
-    size_t bytes_read = fread_unlocked(buf, 1, HEADER_SIZE, f);
+    size_t bytesRead = fread_unlocked(buf, 1, HEADER_SIZE, f);
 
     // Se non viene letto niente, siamo alla fine del file, e quindi ritorniamo false.
-    if (bytes_read == 0) {
+    if (bytesRead == 0) {
         return false;
     }
 
     // Se viene letto meno di 12 byte, il file è troncato.
-    if (bytes_read != HEADER_SIZE) {
+    if (bytesRead != HEADER_SIZE) {
         throw std::runtime_error("read_header: file troncato");
     }
 
@@ -87,7 +87,7 @@ inline bool read_header(FILE* f, RecordHeader& hdr) {
 
 // Funzione usata per saltare il payload di un record nel file, senza leggerlo in memoria.
 // Si sposta il cursore del file in avanti di len byte.
-inline void skip_payload(FILE* f, uint32_t len) {
+inline void skipPayload(FILE* f, uint32_t len) {
     // Converto esplicitamente len a off_t (tipo usato da fseeko per offset a 64 bit).
     off_t offset = static_cast<off_t>(len);
 
@@ -100,7 +100,7 @@ inline void skip_payload(FILE* f, uint32_t len) {
 
 // Funzione che scrive un record completo (header + payload) su FILE*.
 // Prende in input il file, la key, la lunghezza del payload e il payload stesso.
-inline void write_record(FILE* f, uint64_t key, uint32_t len, const char* payload) {
+inline void writeRecord(FILE* f, uint64_t key, uint32_t len, const char* payload) {
     // Si ricostruisce l'header in un buffer locale di 12 byte: buf[0..7]  = key (8 byte). buf[8..11] = len (4 byte)
     uint8_t buf[HEADER_SIZE];
     std::memcpy(buf,     &key, sizeof(uint64_t));

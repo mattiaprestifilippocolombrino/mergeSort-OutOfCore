@@ -24,7 +24,7 @@
 //
 //   run_0.bin, run_1.bin, run_2.bin, ...  ← ognuno già ordinato
 //
-// FASE 2  —  kway_merge()   [kway_merger.hpp]
+// FASE 2  —  omp_kway_merge()   [omp_kway_merger.hpp]
 //   K-way merge multi-pass con fan-in limitato a --merge-fan:
 //
 //   Se le run sono ≤ merge-fan: un solo passaggio di merge.
@@ -46,8 +46,8 @@
 //
 // =============================================================================
 
-#include "chunk_sorter.hpp"  // sort_to_runs()
-#include "kway_merger.hpp"   // kway_merge()
+#include "chunk_sorter.hpp"     // sort_to_runs()
+#include "omp_kway_merger.hpp"   // omp_kway_merge()
 #include "temp_dir.hpp"
 
 #include <iostream>
@@ -82,14 +82,14 @@ int main(int argc, char* argv[]) {
     // Parametri di default:
     // chunk grande abbastanza da sfruttare std::sort su blocchi corposi,
     // merge_fan alto per ridurre le passate su disco, ma ancora leggero in RAM.
-    std::string input_path  = argv[1];
-    std::string output_path = argv[2];
-    std::string tmp_dir     = "/tmp";
-    size_t      chunk_mb    = 256;
-    int         nthreads    = omp_get_max_threads();
-    int         merge_fan   = 64;
-    bool        keep_runs   = false;
-    bool        par_merge   = true;
+    std::string inputPath  = argv[1];
+    std::string outputPath = argv[2];
+    std::string tmpDir     = "/tmp";
+    size_t      chunkMb    = 256;
+    int         nThreads    = omp_get_max_threads();
+    int         mergeFan   = 64;
+    bool        keepRuns   = false;
+    bool        parallelMerge   = true;
 
     // Parsing semplice e diretto delle opzioni.
     // Mantengo nomi e parametri uguali tra versioni OMP, FF e MPI: rende piu'
@@ -98,44 +98,44 @@ int main(int argc, char* argv[]) {
         std::string a = argv[i];
 
         if (a == "--chunk-mb" && i + 1 < argc) {
-            chunk_mb = std::stoul(argv[++i]);
+            chunkMb = std::stoul(argv[++i]);
         } else if (a == "--threads" && i + 1 < argc) {
-            nthreads = std::stoi(argv[++i]);
+            nThreads = std::stoi(argv[++i]);
         } else if (a == "--tmp-dir" && i + 1 < argc) {
-            tmp_dir = argv[++i];
+            tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
-            merge_fan = std::stoi(argv[++i]);
+            mergeFan = std::stoi(argv[++i]);
         } else if (a == "--no-par-merge") {
-            par_merge = false;
+            parallelMerge = false;
         } else if (a == "--keep-runs") {
-            keep_runs = true;
+            keepRuns = true;
         } else {
             usage(argv[0]);
         }
     }
 
-    if (chunk_mb == 0) {
+    if (chunkMb == 0) {
         std::cerr << "[WARN] --chunk-mb 0 non valido, imposto a 1\n";
-        chunk_mb = 1;
+        chunkMb = 1;
     }
 
-    omp_set_num_threads(nthreads);
+    omp_set_num_threads(nThreads);
 
     // Converto chunk_mb in byte (1 MB = 1024 * 1024 byte).
-    const size_t chunk_bytes = chunk_mb * 1024ULL * 1024ULL;
+    const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL;
 
     // Ogni esecuzione usa una sottodirectory temporanea unica.
     // Se keep_runs=false viene cancellata automaticamente dal distruttore.
-    TempDir work_tmp(tmp_dir, "spm_omp", keep_runs);
+    TempDir workTmp(tmpDir, "spm_omp", keepRuns);
 
     std::cout << "=== OMP MergeSort out-of-core ===\n"
-              << "  input        : " << input_path        << "\n"
-              << "  output       : " << output_path       << "\n"
-              << "  chunk        : " << chunk_mb          << " MB\n"
-              << "  threads      : " << nthreads          << "\n"
-              << "  merge fan-in : " << merge_fan         << "\n"
-              << "  merge paral. : " << (par_merge ? "si" : "no") << "\n"
-              << "  tmp          : " << work_tmp.str()    << "\n"
+              << "  input        : " << inputPath        << "\n"
+              << "  output       : " << outputPath       << "\n"
+              << "  chunk        : " << chunkMb          << " MB\n"
+              << "  threads      : " << nThreads          << "\n"
+              << "  merge fan-in : " << mergeFan         << "\n"
+              << "  merge paral. : " << (parallelMerge ? "si" : "no") << "\n"
+              << "  tmp          : " << workTmp.str()    << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX       << " B\n\n";
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
 
     // sort_to_runs e' il cuore della fase 1:
     // produce tanti file temporanei ordinati, uno per chunk.
-    std::vector<std::string> runs = sort_to_runs(input_path, work_tmp.str(), chunk_bytes);
+    std::vector<std::string> runs = sortToRuns(inputPath, workTmp.str(), chunkBytes);
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     std::cout << "Fase 1 (sort): " << runs.size() << " run create in "
@@ -162,8 +162,8 @@ int main(int argc, char* argv[]) {
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
 
     // Il merge lavora solo su file ordinati: non carica mai tutte le run in RAM.
-    kway_merge(runs, output_path, merge_fan, /*delete_runs=*/!keep_runs,
-               /*parallel_merge=*/par_merge);
+    ompKwayMerge(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
+                   /*parallelMerge=*/parallelMerge);
 
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
 
