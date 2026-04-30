@@ -1,0 +1,33 @@
+# Build directories
+build/
+build_local/
+bin/
+out/
+
+# IDE files
+.vscode/
+.idea/
+.clion/
+*.swp
+*.swo
+
+# Compiled objects
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+
+# CMake generated files (if any in root)
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# OS files
+.DS_Store
+Thumbs.db
