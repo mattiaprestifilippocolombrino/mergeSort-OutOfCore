@@ -132,15 +132,16 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────────
     // FASE 1: sort parallelo dei chunk → file di run (FastFlow Farm)
     // ─────────────────────────────────────────────────────────────────────────
-    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
 
     // ff_sort_to_runs implementa la fase 1 con una farm FastFlow.
     std::vector<std::string> runs =
-        ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);
+        ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);   // Chiama la funzione ff_sort_to_runs per ordinare i chunk del file di input e salvare le run in file temporanei.
 
-    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();   // Fine a contare il tempo.
+
     std::cout << "Fase 1 (sort FF): " << runs.size() << " run create in "
-              << seconds(t0, t1) << " s\n";
+              << seconds(t0, t1) << " s\n";   // Stampa il tempo impiegato per la fase 1.
 
     if (runs.empty()) {
         std::cout << "File vuoto — output non creato.\n";
@@ -150,18 +151,18 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────────
     // FASE 2: K-way merge multi-pass → file di output (FastFlow ParallelFor)
     // ─────────────────────────────────────────────────────────────────────────
-    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
 
     // ff_kway_merge usa ff::ParallelFor internamente: nessun conflitto di
     // CPU affinity con la farm usata nella Fase 1. Un solo runtime FF.
     bool deleteRuns = !keepRuns;
-    ffKwayMerge(runs, outputPath, nWorkers, mergeFan, deleteRuns);
+    ffKwayMerge(runs, outputPath, nWorkers, mergeFan, deleteRuns);   // Chiama la funzione ff_kway_merge per fondere le run in un unico file di output.
 
-    std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();   // Fine a contare il tempo.
 
-    const double ts = seconds(t0, t1);
-    const double tm = seconds(t2, t3);
-    const double tt = seconds(t0, t3);
+    const double ts = seconds(t0, t1);  // Tempo impiegato per la fase 1.
+    const double tm = seconds(t2, t3);  // Tempo impiegato per la fase 2.
+    const double tt = seconds(t0, t3);  // Tempo totale impiegato.
 
     std::cout << "Fase 2 (merge): " << tm << " s\n\n"
               << "--- Riepilogo tempi ---\n"
