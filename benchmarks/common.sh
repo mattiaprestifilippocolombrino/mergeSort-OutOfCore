@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
+RESULTS_DIR="${RESULTS_DIR:-$PROJECT_DIR/benchmark_results}"
+DATA_DIR="${DATA_DIR:-$PROJECT_DIR/benchmark_data}"
+TMP_BASE="${TMP_BASE:-${TMPDIR:-/tmp}}"
+
+PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-1048576}"
+CHUNK_MB="${CHUNK_MB:-128}"
+MERGE_FAN="${MERGE_FAN:-64}"
+TRIALS="${TRIALS:-5}"
+VERIFY="${VERIFY:-1}"
+SEED="${SEED:-42}"
+
+# Two intentionally different regimes:
+# - many short records: stresses comparisons, indexing, task scheduling;
+# - fewer large records: stresses I/O bandwidth and payload movement.
+BENCHMARK_CASES="${BENCHMARK_CASES:-many_small:5000000:64 few_large:2048:1048576}"
+
+THREAD_LIST="${THREAD_LIST:-1 2 4 8 16}"
+MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 2 4 8}"
+STRONG_NODES="${STRONG_NODES:-1 2 4 8}"
+RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
+WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-1000000}"
+WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-256}"
+WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
+
+mkdir -p "$RESULTS_DIR" "$DATA_DIR"
+
+log() {
+    printf '[bench] %s\n' "$*" >&2
+}
+
+build_project() {
+    log "Configuro build Release in $BUILD_DIR con PAYLOAD_MAX=$PAYLOAD_MAX_BUILD"
+    cmake -S "$PROJECT_DIR" -B "$BUILD_DIR" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DPAYLOAD_MAX="$PAYLOAD_MAX_BUILD"
+    cmake --build "$BUILD_DIR" -j "$(available_cpus)"
+}
+
+available_cpus() {
+    if [[ -n "${SLURM_CPUS_PER_TASK:-}" ]]; then
+        printf '%s\n' "$SLURM_CPUS_PER_TASK"
+    elif command -v nproc >/dev/null 2>&1; then
+        nproc
+    else
+        printf '1\n'
+    fi
+}
+
+run_single() {
+    local cpus="$1"
+    shift
+
+    if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+        srun -N 1 -n 1 -c "$cpus" "$@"
+    else
+        "$@"
+    fi
+}
+
+run_mpi() {
+    local nodes="$1"
+    local ranks="$2"
+    local threads="$3"
+    shift 3
+
+    if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+        srun --mpi=pmix --cpu-bind=none -N "$nodes" -n "$ranks" -c "$threads" "$@"
+    elif command -v mpirun >/dev/null 2>&1; then
+        mpirun --oversubscribe -n "$ranks" "$@"
+    else
+        log "mpirun non trovato: impossibile eseguire benchmark MPI fuori da SLURM"
+        return 127
+    fi
+}
+
+case_name() {
+    cut -d: -f1 <<<"$1"
+}
+
+case_records() {
+    cut -d: -f2 <<<"$1"
+}
+
+case_payload() {
+    cut -d: -f3 <<<"$1"
+}
+
+dataset_path() {
+    local name="$1"
+    local records="$2"
+    local payload="$3"
+    printf '%s/%s_n%s_p%s.bin\n' "$DATA_DIR" "$name" "$records" "$payload"
+}
+
+ensure_dataset() {
+    local name="$1"
+    local records="$2"
+    local payload="$3"
+    local path
+    path="$(dataset_path "$name" "$records" "$payload")"
+
+    if [[ -s "$path" ]]; then
+        log "Dataset gia' presente: $path"
+        printf '%s\n' "$path"
+        return 0
+    fi
+
+    if (( payload > PAYLOAD_MAX_BUILD )); then
+        log "payload=$payload supera PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD"
+        return 2
+    fi
+
+    log "Genero dataset $name: N=$records payload_max=$payload"
+    run_single "$(available_cpus)" "$BUILD_DIR/generate" "$path" "$records" \
+        --payload-max "$payload" \
+        --seed "$SEED" >/dev/null
+    printf '%s\n' "$path"
+}
+
+extract_seconds() {
+    local label="$1"
+    awk -v label="$label" '
+        index($0, label) {
+            for (i = 1; i <= NF; ++i) {
+                if ($i ~ /^[-+]?[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$/) {
+                    value = $i
+                }
+            }
+        }
+        END {
+            if (value == "") {
+                print "nan"
+            } else {
+                print value
+            }
+        }
+    '
+}
+
+run_and_capture_sort() {
+    local out_log="$1"
+    shift
+    "$@" >"$out_log" 2>&1
+}
+
+write_csv_header() {
+    local file="$1"
+    local header="$2"
+    if [[ ! -s "$file" ]]; then
+        printf '%s\n' "$header" >"$file"
+    fi
+}
+
+verify_output() {
+    local input="$1"
+    local output="$2"
+    if [[ "$VERIFY" == "1" ]]; then
+        "$BUILD_DIR/verify" "$input" "$output" >/dev/null
+    fi
+}

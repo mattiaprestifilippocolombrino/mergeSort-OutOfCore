@@ -230,7 +230,7 @@ static void mpiSendFile(
 
     if (sz <= 0) return; // Se il file è vuoto, la funzione termina e non c'è nulla da inviare
 
-    // Si pre il file in lettura binaria
+    // Si apre il file in lettura binaria
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) throw std::runtime_error("mpiSendFile: impossibile aprire " + path); // Lancia eccezione se apertura fallisce
 

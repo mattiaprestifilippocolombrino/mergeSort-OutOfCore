@@ -70,7 +70,7 @@ struct FFEmitter : ff_monode_t<ChunkData> {
 
     /*
     Metodo chiamato da FastFlow quando il nodo deve fare lavoro.
-    L'input non viene utilizzato (parametro inutilizzato).
+    L'input non viene utilizzato.
     */
     ChunkData* svc(ChunkData* /*unused*/) override {
         int runId = 0;  // Inizializza l'ID delle run a 0.
@@ -185,7 +185,7 @@ Quando il producer finisce, invia EOS. Smette di inviare chunk e aspetta che i w
 Il worker riceve un puntatore a un ChunkData. Il worker lo ordina e lo salva in un file di run. 
 Il valore restituito dal worker è il segnale che il worker vuole continuare a ricevere task.
 Il worker non contiene logica nuova: riusa la stessa funzione usata da OpenMP. Cambia solo il pattern parallelo.
-Non si ha collector..
+Non si ha collector.
 */
 struct FFWorker : ff_node_t<ChunkData> {
     ChunkData* svc(ChunkData* chunk) override {  //funzione che viene eseguita dal worker.

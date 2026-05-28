@@ -3,6 +3,13 @@ build/
 build_local/
 bin/
 out/
+benchmark_data/
+benchmark_results/
+build_bench/
+slurm_single_*.out
+slurm_single_*.err
+slurm_mpi_*.out
+slurm_mpi_*.err
 
 # IDE files
 .vscode/

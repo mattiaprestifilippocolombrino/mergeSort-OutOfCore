@@ -279,7 +279,7 @@ Le variabili condivise sono: fin, tmp_dir, chunk_bytes, run_paths, error_flag, e
                         }
                     }
 
-                    // Legge il record header in una struct temporanea. 
+                    // Legge il record header. 
                     // Se fallisce, significa che si è arrivati alla fine del file (EOF). 
                     // La funzione read_header gestisce internamente il caso di file troncato (record parziale).
                     RecordHeader hdr;
