@@ -145,6 +145,25 @@ extract_seconds() {
     '
 }
 
+extract_generated_runs() {
+    awk '
+        index($0, "Fase 1") {
+            for (i = 2; i <= NF; ++i) {
+                if ($i == "run" && $(i - 1) ~ /^[0-9]+$/) {
+                    value = $(i - 1)
+                }
+            }
+        }
+        END {
+            if (value == "") {
+                print "0"
+            } else {
+                print value
+            }
+        }
+    '
+}
+
 run_and_capture_sort() {
     local out_log="$1"
     shift

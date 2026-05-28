@@ -12,10 +12,27 @@
 set -Eeuo pipefail
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
-mkdir -p benchmark_results
+
+export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+if [[ -d "/scratch" && -w "/scratch" ]]; then
+    RUN_ROOT="/scratch/$USER/spmRun"
+else
+    RUN_ROOT="/tmp/$USER/spmRun"
+fi
+export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
+export RESULTS_DIR="$PROJECT_DIR/benchmark_results"
+export DATA_DIR="$PROJECT_DIR/benchmark_data"
+export TMP_BASE="$RUN_DIR/tmp"
+
+mkdir -p "$RESULTS_DIR" "$DATA_DIR" "$TMP_BASE"
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
 echo "SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-}"
+echo "PROJECT_DIR=$PROJECT_DIR"
+echo "RUN_DIR=$RUN_DIR"
+echo "RESULTS_DIR=$RESULTS_DIR"
+echo "DATA_DIR=$DATA_DIR"
+echo "TMP_BASE=$TMP_BASE"
 if command -v scontrol >/dev/null 2>&1; then
     scontrol show hostnames "${SLURM_JOB_NODELIST:-}"
 fi

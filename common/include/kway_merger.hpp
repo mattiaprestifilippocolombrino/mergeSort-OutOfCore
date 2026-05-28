@@ -29,10 +29,16 @@ Scelta prestazionale: uso merge_fan = 64 di default. Con buffer da 4 MB per run 
 #include <filesystem>
 #include <memory>
 #include <atomic>
+#include <cstdlib>
 
 // Buffer di 4 MB per ogni run aperta in merge. 
 //Il merge fa molte letture sequenziali piccole; il buffer riduce le syscall.
 static constexpr size_t MERGE_BUF_SIZE = 4ULL * 1024 * 1024;
+
+inline bool mergeVerboseEnabled() {
+    const char* value = std::getenv("MERGE_VERBOSE");
+    return value != nullptr && std::strcmp(value, "0") != 0;
+}
 
 /*
 Struttura wrapper RunReader usata per leggere una run ordinata.
@@ -282,8 +288,19 @@ inline void kwayMerge(
         mergeFan = 2;
     }
 
+    const bool verbose = mergeVerboseEnabled();
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] impl=serial initialRuns=%zu mergeFan=%d parallelMerge=no\n",
+                     runPaths.size(), mergeFan);
+    }
+
     // Caso banale: Se si ha una run singola, basta rinominare o copiare, con la funzione di utility in O(1).
     if (runPaths.size() == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=0 runs=1 groups=1 tasks=0 mode=singleRun\n");
+        }
         moveOrCopyRun(runPaths[0], outputPath, deleteRuns);
         return;
     }
@@ -311,6 +328,11 @@ inline void kwayMerge(
 
         // Numero di gruppi indipendenti in questa passata. Es. se merge_fan = 64 e R = 50, num_groups = 1.
         int numGroups = (R + mergeFan - 1) / mergeFan;
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=%d runs=%d groups=%d tasks=%d mode=serial\n",
+                         pass, R, numGroups, numGroups);
+        }
 
         // Preparo i nomi dei file prodotti dalla passata.
         std::vector<std::string> nextLevel(numGroups);    //Vettore di path dei file di output intermedi prodotto dalla passata.

@@ -15,7 +15,7 @@ if [[ ! -x "$BUILD_DIR/mpi_sort" ]]; then
 fi
 
 write_csv_header "$CSV" \
-    "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,sort_s,merge_s,total_s,verified,log_file"
+    "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
 
@@ -52,14 +52,15 @@ for weak_spec in $WEAK_CASES; do
                 verify_output "$input" "$output"
                 rm -f "$output"
 
+                generated_runs="$(extract_generated_runs <"$log_file")"
                 sort_s="$(extract_seconds "Fase 1" <"$log_file")"
                 merge_s="$(extract_seconds "Fase 2" <"$log_file")"
                 total_s="$(extract_seconds "Totale" <"$log_file")"
 
-                printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+                printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
                     "mpi_weak" "$case_name_weak" "$trial" "$records" "$payload" \
                     "$nodes" "$ranks" "$RANKS_PER_NODE" "$threads" "$total_cores" \
-                    "$records_per_node" "$CHUNK_MB" "$MERGE_FAN" \
+                    "$records_per_node" "$CHUNK_MB" "$MERGE_FAN" "$generated_runs" \
                     "$sort_s" "$merge_s" "$total_s" "$VERIFY" "$log_file" >>"$CSV"
             done
         done

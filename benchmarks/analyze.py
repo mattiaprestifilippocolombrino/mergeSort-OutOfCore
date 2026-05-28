@@ -250,7 +250,7 @@ def main() -> None:
 
     single = summarize(
         read_csv(results_dir / "single_node_raw.csv"),
-        ["impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan"],
+        ["impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
         drop_worst,
     )
     add_single_node_metrics(single)
@@ -269,6 +269,7 @@ def main() -> None:
             "total_cores",
             "chunk_mb",
             "merge_fan",
+            "generated_runs",
         ],
         drop_worst,
     )
@@ -289,6 +290,7 @@ def main() -> None:
             "records_per_node",
             "chunk_mb",
             "merge_fan",
+            "generated_runs",
         ],
         drop_worst,
     )

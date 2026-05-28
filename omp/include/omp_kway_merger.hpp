@@ -46,8 +46,19 @@ inline void ompKwayMerge(
         mergeFan = 2;
     }
 
+    const bool verbose = mergeVerboseEnabled();
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] impl=omp initialRuns=%zu mergeFan=%d parallelMerge=%s\n",
+                     runPaths.size(), mergeFan, parallelMerge ? "yes" : "no");
+    }
+
     // Caso banale: run singola, basta rinominare o copiare in O(1).
     if (runPaths.size() == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=0 runs=1 groups=1 tasks=0 mode=singleRun\n");
+        }
         moveOrCopyRun(runPaths[0], outputPath, deleteRuns);
         return;
     }
@@ -75,6 +86,13 @@ inline void ompKwayMerge(
 
         // Numero di gruppi indipendenti in questa passata. Es. se merge_fan = 64 e R = 50, num_groups = 1.
         int numGroups = (R + mergeFan - 1) / mergeFan;
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=%d runs=%d groups=%d tasks=%d mode=%s\n",
+                         pass, R, numGroups,
+                         (parallelMerge && numGroups > 1) ? numGroups : 0,
+                         (parallelMerge && numGroups > 1) ? "parallel" : "singleGroup");
+        }
 
         // Preparo i nomi dei file prodotti dalla passata.
         std::vector<std::string> nextLevel(numGroups);    //Vettore di path dei file di output intermedi prodotto dalla passata.

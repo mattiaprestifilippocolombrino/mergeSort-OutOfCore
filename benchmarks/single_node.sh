@@ -14,7 +14,7 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 write_csv_header "$CSV" \
-    "suite,impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,sort_s,merge_s,total_s,verified,log_file"
+    "suite,impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
 run_impl() {
     local impl="$1"
@@ -47,14 +47,15 @@ run_impl() {
     verify_output "$input" "$output"
     rm -f "$output"
 
-    local sort_s merge_s total_s
+    local generated_runs sort_s merge_s total_s
+    generated_runs="$(extract_generated_runs <"$log_file")"
     sort_s="$(extract_seconds "Fase 1" <"$log_file")"
     merge_s="$(extract_seconds "Fase 2" <"$log_file")"
     total_s="$(extract_seconds "Totale" <"$log_file")"
 
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "single_node" "$impl" "$case" "$trial" "$records" "$payload" \
-        "$threads" "$CHUNK_MB" "$MERGE_FAN" "$sort_s" "$merge_s" "$total_s" \
+        "$threads" "$CHUNK_MB" "$MERGE_FAN" "$generated_runs" "$sort_s" "$merge_s" "$total_s" \
         "$VERIFY" "$log_file" >>"$CSV"
 }
 

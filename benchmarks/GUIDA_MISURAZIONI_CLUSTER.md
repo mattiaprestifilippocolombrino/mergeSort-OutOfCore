@@ -21,6 +21,7 @@ Le modifiche pratiche applicate agli script sono queste:
 3. Per il weak scaling si puo' usare `WEAK_CASES` per fare una run con payload piccolo e, se c'e' tempo, una run aggiuntiva con payload grande.
 4. Tenere `TRIALS=5` e usare `analyze.py`, che scarta il trial peggiore se ci sono almeno 3 ripetizioni.
 5. Conservare i log `.out`, `.err` e `benchmark_results/*.log`, per discutere bottleneck e fasi lente nella relazione.
+6. Salvare nei CSV anche `generated_runs`, utile per capire quando il merge crea davvero piu' gruppi paralleli.
 
 ## 1. Login al cluster da PowerShell
 
@@ -129,6 +130,27 @@ benchmark_results/single_node_summary.csv
 benchmark_results/plots/
 ```
 
+Per un benchmark single-node piu' serio:
+
+```bash
+BENCHMARK_CASES="manySmall50M:50000000:64 payload512:5000000:512 payload2048:1000000:2048" \
+THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
+TRIALS=3 \
+VERIFY=1 \
+sbatch benchmarks/slurm_single_node.sbatch
+```
+
+Se FastFlow e' installato in `~/fastFlow`:
+
+```bash
+FF_ROOT="$HOME/fastFlow" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
+TRIALS=3 \
+VERIFY=1 \
+sbatch benchmarks/slurm_single_node.sbatch
+```
+
 ## 6. Benchmark MPI strong e weak scaling
 
 Questo misura MPI fino a 8 nodi. Lo script Slurm usa solo i nodi omogenei `node01-node08`:
@@ -148,6 +170,17 @@ VERIFY=1
 ```
 
 Con questi valori il numero di processi MPI cresce con i nodi: 1, 2, 4, 8. I thread per processo cambiano con `MPI_THREAD_LIST`. Questo copre la richiesta senza moltiplicare troppo il numero di run.
+
+Per una run MPI piu' seria:
+
+```bash
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+WEAK_CASES="weakSmall:10000000:64" \
+MPI_THREAD_LIST="1 2 4 8 16" \
+TRIALS=3 \
+VERIFY=1 \
+sbatch benchmarks/slurm_mpi_scaling.sbatch
+```
 
 Output principali:
 
@@ -183,7 +216,31 @@ TRIALS=5 \
 sbatch benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-## 8. Controllare lo stato dei job
+## 8. Diagnostica merge
+
+Per capire se il merge sta creando piu' gruppi paralleli, usa una run diagnostica:
+
+```bash
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+THREAD_LIST="1 2 4 8 16" \
+CHUNK_MB=64 \
+MERGE_FAN=16 \
+MERGE_VERBOSE=1 \
+TRIALS=2 \
+VERIFY=1 \
+sbatch benchmarks/slurm_single_node.sbatch
+```
+
+Nei log `benchmark_results/*.log` cerca righe del tipo:
+
+```text
+[merge] impl=omp initialRuns=...
+[merge] level=... runs=... groups=... tasks=... mode=...
+```
+
+Se `groups=1`, il merge e' parallelizzato nel codice ma quella configurazione non genera gruppi indipendenti. Per aumentare i gruppi puoi ridurre `CHUNK_MB` o `MERGE_FAN`, poi confrontare il tempo totale.
+
+## 9. Controllare lo stato dei job
 
 ```bash
 squeue -u $USER
@@ -203,7 +260,7 @@ tail -n 120 slurm_single_*.err
 tail -n 120 slurm_mpi_*.err
 ```
 
-## 9. Rigenerare i summary a mano
+## 10. Rigenerare i summary a mano
 
 Di solito gli script Slurm chiamano gia' `analyze.py`. Se vuoi rigenerare i CSV aggregati:
 
@@ -219,7 +276,7 @@ benchmark_results/mpi_strong_summary.csv
 benchmark_results/mpi_weak_summary.csv
 ```
 
-## 10. Scaricare i risultati dal cluster a Windows
+## 11. Scaricare i risultati dal cluster a Windows
 
 Da PowerShell:
 
@@ -229,7 +286,7 @@ scp LOGIN@spmcluster.unipi.it:~/spm/slurm_*.out "$env:USERPROFILE\Desktop\spm_be
 scp LOGIN@spmcluster.unipi.it:~/spm/slurm_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
 ```
 
-## 11. Cosa riportare nella relazione
+## 12. Cosa riportare nella relazione
 
 Per la parte performance:
 
