@@ -37,11 +37,11 @@ if command -v scontrol >/dev/null 2>&1; then
     scontrol show hostnames "${SLURM_JOB_NODELIST:-}"
 fi
 
-export THREAD_LIST="${THREAD_LIST:-1 4 8 16 32}"
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
+export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 export CHUNK_MB="${CHUNK_MB:-128}"
 export MERGE_FAN="${MERGE_FAN:-8}"
-export TRIALS="${TRIALS:-2}"
+export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
 export RUN_OMP="${RUN_OMP:-1}"
 export RUN_FF="${RUN_FF:-1}"
