@@ -40,7 +40,7 @@ fi
 export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
 export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 export CHUNK_MB="${CHUNK_MB:-64}"
-export MERGE_FAN="${MERGE_FAN:-4}"
+export MERGE_FAN="${MERGE_FAN:-8}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
 export RUN_OMP="${RUN_OMP:-1}"

@@ -2,7 +2,7 @@
 
 Questa cartella contiene gli script per misurare speedup, efficiency, strong scaling e weak scaling del progetto.
 
-La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e guidati da una fase di tuning, per evitare esecuzioni troppo lunghe sullo spmcluster.
+La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
 ## Perche' ora c'e' un tuning
 
@@ -13,7 +13,7 @@ threads 1  -> totale 34.5s, merge 19.8s
 threads 32 -> totale 19.5s, merge 14.8s
 ```
 
-Per questo la campagna finale non deve fissare `CHUNK_MB` e `MERGE_FAN` a caso. Prima si esegue:
+Per questo la campagna finale usa `CHUNK_MB=64, MERGE_FAN=8`, scelti dal tuning su `manySmall50M`. Il tuning si puo' rieseguire con:
 
 ```text
 slurm_tune_single_node.sbatch
@@ -29,12 +29,12 @@ benchmark_results/single_node_tuning_summary.csv
 Il tuning prova poche combinazioni:
 
 ```bash
-CHUNK_MB_LIST="64 128 256"
-MERGE_FAN_LIST="4 8 16"
-THREAD_LIST="8 32"
+CHUNK_MB_LIST="64 256"
+MERGE_FAN_LIST="8 16"
+THREAD_LIST="1 32"
 ```
 
-Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`, controllando che non peggiori troppo a `threads=8`.
+Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`. Il tuning e' opzionale per la campagna finale gia' impostata.
 
 ## Campagna finale
 
@@ -136,7 +136,7 @@ Quindi:
 
 ```bash
 CHUNK_MB=64
-MERGE_FAN=4
+MERGE_FAN=8
 TRIALS=1
 VERIFY=0
 RUN_TIMEOUT_SECONDS=180

@@ -9,8 +9,8 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     build_project
 fi
 
-CHUNK_MB_LIST="${CHUNK_MB_LIST:-64 128 256}"
-MERGE_FAN_LIST="${MERGE_FAN_LIST:-4 8 16}"
+CHUNK_MB_LIST="${CHUNK_MB_LIST:-64 256}"
+MERGE_FAN_LIST="${MERGE_FAN_LIST:-8 16}"
 
 write_csv_header "$CSV" \
     "suite,impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
