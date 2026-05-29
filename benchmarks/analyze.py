@@ -84,16 +84,26 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str], float] = {}
+    baselines: dict[tuple[str, str, str, str], float] = {}
     for row in rows:
-        key = (row["impl"], row["case"])
+        key = (
+            row["impl"],
+            row["case"],
+            row.get("chunk_mb", ""),
+            row.get("merge_fan", ""),
+        )
         threads = as_int(row, "threads")
         time = as_float(row, "avg_total_s")
         if threads == 1 and math.isfinite(time):
             baselines[key] = time
 
     for row in rows:
-        key = (row["impl"], row["case"])
+        key = (
+            row["impl"],
+            row["case"],
+            row.get("chunk_mb", ""),
+            row.get("merge_fan", ""),
+        )
         baseline = baselines.get(key)
         threads = as_int(row, "threads")
         time = as_float(row, "avg_total_s")
@@ -108,32 +118,32 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
 
 
 def add_strong_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[str, tuple[float, int]] = {}
+    baselines: dict[tuple[str, str, str], tuple[float, int]] = {}
     for row in rows:
-        case = row["case"]
-        total_cores = as_int(row, "total_cores")
+        key = (row["case"], row["ranks_per_node"], row["threads_per_rank"])
+        nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
-        if not math.isfinite(time) or total_cores <= 0:
+        if not math.isfinite(time) or nodes <= 0:
             continue
-        old = baselines.get(case)
-        if old is None or total_cores < old[1]:
-            baselines[case] = (time, total_cores)
+        old = baselines.get(key)
+        if old is None or nodes < old[1]:
+            baselines[key] = (time, nodes)
 
     for row in rows:
-        baseline = baselines.get(row["case"])
-        total_cores = as_int(row, "total_cores")
+        baseline = baselines.get((row["case"], row["ranks_per_node"], row["threads_per_rank"]))
+        nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
-        if baseline and time > 0 and total_cores > 0:
-            base_time, base_cores = baseline
+        if baseline and time > 0 and nodes > 0:
+            base_time, base_nodes = baseline
             speedup = base_time / time
-            efficiency = speedup / (total_cores / base_cores)
+            efficiency = speedup / (nodes / base_nodes)
             row["strong_speedup"] = f"{speedup:.9g}"
             row["strong_efficiency"] = f"{efficiency:.9g}"
-            row["baseline_cores"] = str(base_cores)
+            row["baseline_nodes"] = str(base_nodes)
         else:
             row["strong_speedup"] = "nan"
             row["strong_efficiency"] = "nan"
-            row["baseline_cores"] = "0"
+            row["baseline_nodes"] = "0"
 
 
 def add_weak_metrics(rows: list[dict[str, str]]) -> None:

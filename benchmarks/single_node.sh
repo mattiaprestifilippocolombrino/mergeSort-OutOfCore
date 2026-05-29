@@ -6,6 +6,8 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 CSV="${1:-$RESULTS_DIR/single_node_raw.csv}"
 RUN_ROOT="$TMP_BASE/spm_single_node_bench_${SLURM_JOB_ID:-$$}"
 
+validate_benchmark_config
+
 mkdir -p "$RUN_ROOT"
 trap 'rm -rf "$RUN_ROOT"' EXIT
 
@@ -20,7 +22,12 @@ impl_count=0
 if [[ "${RUN_OMP:-1}" == "1" ]]; then
     impl_count=$((impl_count + 1))
 fi
-if [[ "${RUN_FF:-1}" == "1" && -x "$BUILD_DIR/ff_sort" ]]; then
+if [[ "${RUN_FF:-0}" == "1" ]]; then
+    if [[ ! -x "$BUILD_DIR/ff_sort" ]]; then
+        log "RUN_FF=1 ma $BUILD_DIR/ff_sort non esiste."
+        log "Installa FastFlow e rilancia con FF_ROOT=\$HOME/fastFlow, oppure usa RUN_FF=0."
+        exit 1
+    fi
     impl_count=$((impl_count + 1))
 fi
 if [[ "$impl_count" == "0" ]]; then
@@ -42,11 +49,15 @@ run_impl() {
     local trial="$7"
 
     local output="$RUN_ROOT/${impl}_${case}_t${threads}_i${trial}.bin"
-    local log_file="$RESULTS_DIR/${impl}_${case}_t${threads}_i${trial}.log"
+    local log_suffix="${LOG_TAG:-}"
+    if [[ -n "$log_suffix" ]]; then
+        log_suffix="_${log_suffix}"
+    fi
+    local log_file="$RESULTS_DIR/${impl}_${case}_t${threads}_i${trial}${log_suffix}.log"
 
     if [[ "$impl" == "omp" ]]; then
         if ! run_and_capture_sort "$log_file" \
-            run_single "$threads" "$BUILD_DIR/omp_sort" "$input" "$output" \
+            run_single_benchmark "$threads" "$BUILD_DIR/omp_sort" "$input" "$output" \
                 --chunk-mb "$CHUNK_MB" \
                 --threads "$threads" \
                 --tmp-dir "$RUN_ROOT" \
@@ -56,7 +67,7 @@ run_impl() {
         fi
     else
         if ! run_and_capture_sort "$log_file" \
-            run_single "$threads" "$BUILD_DIR/ff_sort" "$input" "$output" \
+            run_single_benchmark "$threads" "$BUILD_DIR/ff_sort" "$input" "$output" \
                 --chunk-mb "$CHUNK_MB" \
                 --workers "$threads" \
                 --tmp-dir "$RUN_ROOT" \
@@ -99,13 +110,11 @@ for spec in $BENCHMARK_CASES; do
                 fi
             fi
 
-            if [[ "${RUN_FF:-1}" == "1" && -x "$BUILD_DIR/ff_sort" ]]; then
+            if [[ "${RUN_FF:-0}" == "1" ]]; then
                 log "FastFlow case=$name trial=$trial workers=$threads"
                 if ! run_impl "ff" "$name" "$input" "$records" "$payload" "$threads" "$trial"; then
                     log "FastFlow fallito: case=$name trial=$trial workers=$threads. Vedi log in $RESULTS_DIR."
                 fi
-            elif [[ "${RUN_FF:-1}" == "1" && "$trial" == "1" && "$threads" == "$(awk '{print $1; exit}' <<<"$THREAD_LIST")" ]]; then
-                log "ff_sort non presente: salto FastFlow. Imposta FF_ROOT e ricompila per includerlo."
             fi
         done
     done

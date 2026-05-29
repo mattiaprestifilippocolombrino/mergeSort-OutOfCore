@@ -23,6 +23,7 @@ for chunk in $CHUNK_MB_LIST; do
         log "Tuning CHUNK_MB=$chunk MERGE_FAN=$fan"
         CHUNK_MB="$chunk" \
         MERGE_FAN="$fan" \
+        LOG_TAG="c${chunk}_f${fan}" \
         RUN_OMP=1 \
         RUN_FF=0 \
         APPEND_RESULTS=1 \

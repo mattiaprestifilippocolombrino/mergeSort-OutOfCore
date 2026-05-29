@@ -37,11 +37,64 @@ log() {
     printf '[bench] %s\n' "$*" >&2
 }
 
+require_uint() {
+    local name="$1"
+    local value="$2"
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        log "$name deve essere un intero non negativo, valore ricevuto: $value"
+        return 2
+    fi
+}
+
+require_positive_uint() {
+    local name="$1"
+    local value="$2"
+    require_uint "$name" "$value"
+    if (( value <= 0 )); then
+        log "$name deve essere > 0, valore ricevuto: $value"
+        return 2
+    fi
+}
+
+validate_benchmark_config() {
+    require_positive_uint "PAYLOAD_MAX_BUILD" "$PAYLOAD_MAX_BUILD"
+    require_positive_uint "CHUNK_MB" "$CHUNK_MB"
+    require_positive_uint "MERGE_FAN" "$MERGE_FAN"
+    require_positive_uint "TRIALS" "$TRIALS"
+    require_uint "RUN_TIMEOUT_SECONDS" "$RUN_TIMEOUT_SECONDS"
+
+    local chunk_bytes=$((CHUNK_MB * 1024 * 1024))
+    local min_record_bytes=$((PAYLOAD_MAX_BUILD + 12))
+    if (( chunk_bytes < min_record_bytes )); then
+        log "CHUNK_MB=$CHUNK_MB troppo piccolo per PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD"
+        log "Serve almeno $min_record_bytes byte per contenere un record massimo."
+        return 2
+    fi
+
+    local threads
+    for threads in $THREAD_LIST; do
+        require_positive_uint "THREAD_LIST entry" "$threads"
+    done
+
+    local mpi_threads
+    for mpi_threads in $MPI_THREAD_LIST; do
+        require_positive_uint "MPI_THREAD_LIST entry" "$mpi_threads"
+    done
+}
+
 build_project() {
     log "Configuro build Release in $BUILD_DIR con PAYLOAD_MAX=$PAYLOAD_MAX_BUILD"
-    cmake -S "$PROJECT_DIR" -B "$BUILD_DIR" \
-        -DCMAKE_BUILD_TYPE=Release \
+    local cmake_args=(
+        -S "$PROJECT_DIR"
+        -B "$BUILD_DIR"
+        -DCMAKE_BUILD_TYPE=Release
         -DPAYLOAD_MAX="$PAYLOAD_MAX_BUILD"
+    )
+    if [[ -n "${FF_ROOT:-}" ]]; then
+        cmake_args+=("-DFF_ROOT=$FF_ROOT")
+        log "FF_ROOT=$FF_ROOT"
+    fi
+    cmake "${cmake_args[@]}"
     cmake --build "$BUILD_DIR" -j "$(available_cpus)"
 }
 
@@ -63,6 +116,22 @@ run_single() {
         srun -N 1 -n 1 -c "$cpus" "$@"
     else
         "$@"
+    fi
+}
+
+run_single_benchmark() {
+    local cpus="$1"
+    shift
+
+    if (( RUN_TIMEOUT_SECONDS > 0 )); then
+        if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+            timeout --kill-after=10 "$RUN_TIMEOUT_SECONDS" \
+                srun -N 1 -n 1 -c "$cpus" "$@"
+        else
+            timeout --kill-after=10 "$RUN_TIMEOUT_SECONDS" "$@"
+        fi
+    else
+        run_single "$cpus" "$@"
     fi
 }
 
@@ -168,11 +237,7 @@ extract_generated_runs() {
 run_and_capture_sort() {
     local out_log="$1"
     shift
-    if (( RUN_TIMEOUT_SECONDS > 0 )); then
-        timeout "$RUN_TIMEOUT_SECONDS" "$@" >"$out_log" 2>&1
-    else
-        "$@" >"$out_log" 2>&1
-    fi
+    "$@" >"$out_log" 2>&1
 }
 
 write_csv_header() {

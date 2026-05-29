@@ -79,7 +79,14 @@ Nei job FastFlow passa sempre:
 FF_ROOT="$HOME/fastFlow"
 ```
 
-Se FastFlow fallisce o supera il timeout, conserva i log. Non rilanciare subito job grandi: prima fai funzionare una run piccola.
+Se imposti `RUN_FF=1` e `ff_sort` non e' stato compilato, lo script ora fallisce subito. In quel caso controlla:
+
+```bash
+ls -lh build_bench/ff_sort
+tail -n 120 slurm_single_*.err
+```
+
+Se FastFlow fallisce o supera il timeout durante l'esecuzione, conserva i log. Non rilanciare subito job grandi: prima fai funzionare una run piccola.
 
 ## 5. Ottimizzazioni di compilazione
 
@@ -169,7 +176,15 @@ slurm_tune_single_JOBID.out
 slurm_tune_single_JOBID.err
 benchmark_results/single_node_tuning_raw.csv
 benchmark_results/single_node_tuning_summary.csv
-benchmark_results/omp_manySmall50M_*.log
+benchmark_results/omp_manySmall50M_*_c*_f*.log
+```
+
+Se il summary e' vuoto, il tuning non ha completato nessuna run. In quel caso fai:
+
+```bash
+cat benchmark_results/single_node_tuning_raw.csv
+ls -lh benchmark_results/omp_manySmall50M_*_c*_f*.log
+tail -n 80 benchmark_results/omp_manySmall50M_*_c*_f*.log
 ```
 
 Nel file `single_node_tuning_summary.csv` guarda soprattutto `chunk_mb`, `merge_fan`, `generated_runs`, `avg_total_s`, `avg_sort_s`, `avg_merge_s`.

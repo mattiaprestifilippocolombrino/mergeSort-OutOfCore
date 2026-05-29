@@ -44,7 +44,7 @@ export MERGE_FAN="${MERGE_FAN:-4}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
 export RUN_OMP="${RUN_OMP:-1}"
-export RUN_FF="${RUN_FF:-1}"
+export RUN_FF="${RUN_FF:-0}"
 export RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-180}"
 
 ./benchmarks/single_node.sh

@@ -169,5 +169,6 @@ Totale
 - `50M` sostituisce `20M` come caso principale per evitare tempi troppo corti.
 - Prima si fa tuning OpenMP, poi si usa la stessa configurazione per la campagna finale.
 - OpenMP e FastFlow sono in job separati, cosi' un problema FastFlow non rovina le misure OpenMP.
+- Se `RUN_FF=1` ma `ff_sort` non e' stato compilato, lo script fallisce subito invece di saltare FastFlow in silenzio.
 - Strong e weak scaling MPI sono separati per mantenere i job leggibili.
 - `node09` non viene usato: gli script Slurm usano `node01-node08`, cioe' i nodi omogenei.

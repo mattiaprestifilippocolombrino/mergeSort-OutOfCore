@@ -35,6 +35,14 @@ tail -n 120 slurm_tune_single_*.err
 ls -lh benchmark_results/single_node_tuning_*.csv
 ```
 
+Se il summary resta vuoto, guarda subito:
+
+```bash
+cat benchmark_results/single_node_tuning_raw.csv
+ls -lh benchmark_results/omp_manySmall50M_*_c*_f*.log
+tail -n 80 benchmark_results/omp_manySmall50M_*_c*_f*.log
+```
+
 Quando finisce:
 
 ```bash

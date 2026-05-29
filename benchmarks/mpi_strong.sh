@@ -5,6 +5,8 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 CSV="${1:-$RESULTS_DIR/mpi_strong_raw.csv}"
 
+validate_benchmark_config
+
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     build_project
 fi
