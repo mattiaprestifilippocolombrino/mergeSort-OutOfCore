@@ -51,6 +51,7 @@ Architettura del merge parallelo con ff::ParallelFor:
 #include <stdexcept>
 #include <atomic>
 #include <algorithm>
+#include <memory>
 
 /*
 Orchestratore del merge multi-pass.
@@ -117,7 +118,10 @@ inline void ffKwayMerge(
     // Si istanzia il ParallelFor una volta sola fuori dal while, passando nworkers come numero di thread da usare.
     // Il secondo parametro (false) disabilita il pinning interno di FF:
     // questo evita conflitti con il pinning gia' impostato dalla farm della Fase 1.
-    ff::ParallelFor pf(nWorkers, false);
+    std::unique_ptr<ff::ParallelFor> pf;
+    if (runPaths.size() > static_cast<size_t>(mergeFan) && nWorkers > 1) {
+        pf = std::make_unique<ff::ParallelFor>(nWorkers, false);
+    }
 
     // While che itera fino a ridurre il numero di run da fondere ad una sola run finale.
     while (currentLevel.size() > 1) {
@@ -147,7 +151,7 @@ inline void ffKwayMerge(
 
         // Siccome i gruppi sono indipendenti, possono essere fusi in parallelo. Caso in cui abbiamo piu gruppi
         // Se c'e' un solo gruppo, lo eseguiamo direttamente senza overhead di parallelismo.
-        if (numGroups > 1) {
+        if (numGroups > 1 && pf) {
             
             std::atomic<bool> mergeError{false};     // Flag atomico per propagare eccezioni dai thread worker al thread principale.
 
@@ -175,7 +179,7 @@ Le variabili catturate per riferimento sono thread-safe perche':
   Ogni worker riceve in input un indice g appartenente all'intervallo [0, num_groups).
 
             */
-            pf.parallel_for(0, numGroups, 1, 0,
+            pf->parallel_for(0, numGroups, 1, 0,
                 [&](const long g) {                 
                     if (mergeError.load(std::memory_order_relaxed)) return;   // Evito di eseguire merge inutili se un altro gruppo ha gia' fallito.
 

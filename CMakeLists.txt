@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ─── Flag di compilazione ─────────────────────────────────────────────────────
-add_compile_options(-O3 -march=native -Wall -Wextra)
+add_compile_options(-O3 -ffast-math -march=native -Wall -Wextra)
 
 # ─── PAYLOAD_MAX configurabile ────────────────────────────────────────────────
 if(DEFINED PAYLOAD_MAX)
@@ -75,7 +75,7 @@ if(FF_FOUND)
     target_include_directories(ff_sort PRIVATE ${FF_INCLUDE_DIR})
     target_compile_definitions(ff_sort PRIVATE BLOCKING_MODE)
     target_compile_options(ff_sort PRIVATE -Wno-unknown-pragmas -Wno-unused-parameter)
-    target_link_libraries(ff_sort PRIVATE pthread)
+    target_link_libraries(ff_sort PRIVATE pthread OpenMP::OpenMP_CXX)
 endif()
 
 # ─── Versione MPI + OpenMP (Distributed) ──────────────────────────────────────

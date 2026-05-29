@@ -5,7 +5,7 @@
 #SBATCH --nodelist=node[01-08]
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --time=03:00:00
+#SBATCH --time=00:20:00
 #SBATCH --output=slurm_mpi_%j.out
 #SBATCH --error=slurm_mpi_%j.err
 
@@ -39,15 +39,15 @@ fi
 
 export STRONG_NODES="${STRONG_NODES:-1 2 4 8}"
 export RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
-export MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 2 4 8 16}"
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
-export WEAK_CASES="${WEAK_CASES:-weakSmall10M:10000000:64}"
+export MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 8 16}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
+export WEAK_CASES="${WEAK_CASES:-weakSmall5M:5000000:64}"
 export CHUNK_MB="${CHUNK_MB:-128}"
 export MERGE_FAN="${MERGE_FAN:-8}"
-export TRIALS="${TRIALS:-3}"
+export TRIALS="${TRIALS:-2}"
 export VERIFY="${VERIFY:-0}"
 export RUN_STRONG="${RUN_STRONG:-1}"
-export RUN_WEAK="${RUN_WEAK:-1}"
+export RUN_WEAK="${RUN_WEAK:-0}"
 
 if [[ "$RUN_STRONG" == "1" ]]; then
     ./benchmarks/mpi_strong.sh

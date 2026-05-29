@@ -207,6 +207,14 @@ inline std::vector<std::string> ffSortToRuns(
     size_t             chunkBytes, //dimensione del buffer.
     int                nWorkers)   //numero di worker.
 {
+    if (nWorkers <= 1) {
+        int previousThreads = omp_get_max_threads();
+        omp_set_num_threads(1);
+        std::vector<std::string> runPaths = sortToRuns(inputPath, tmpDir, chunkBytes);
+        omp_set_num_threads(previousThreads);
+        return runPaths;
+    }
+
     validateChunkBytes(chunkBytes);  //controlla che la dimensione di un chunk sia abbastanza grande da contenere almeno un record di dimensione massima.
 
     FILE* fin = std::fopen(inputPath.c_str(), "rb");  //apertura file di input in lettura binaria.

@@ -46,14 +46,22 @@ for spec in $BENCHMARK_CASES; do
                 log_file="$RESULTS_DIR/mpi_strong_${name}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
 
                 log "MPI strong case=$name nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial"
-                run_and_capture_sort "$log_file" \
+                if ! run_and_capture_sort "$log_file" \
                     run_mpi "$nodes" "$ranks" "$threads" "$BUILD_DIR/mpi_sort" "$input" "$output" \
                         --chunk-mb "$CHUNK_MB" \
                         --threads "$threads" \
                         --tmp-dir "$TMP_BASE" \
-                        --merge-fan "$MERGE_FAN"
+                        --merge-fan "$MERGE_FAN"; then
+                    log "MPI strong fallito: case=$name nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial. Vedi $log_file"
+                    rm -f "$output"
+                    continue
+                fi
 
-                verify_output "$input" "$output"
+                if ! verify_output "$input" "$output"; then
+                    log "Verifica MPI strong fallita: case=$name nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial"
+                    rm -f "$output"
+                    continue
+                fi
                 rm -f "$output"
 
                 generated_runs="$(extract_generated_runs <"$log_file")"
