@@ -256,6 +256,14 @@ def main() -> None:
     add_single_node_metrics(single)
     write_csv(results_dir / "single_node_summary.csv", single)
 
+    tuning = summarize(
+        read_csv(results_dir / "single_node_tuning_raw.csv"),
+        ["impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
+        drop_worst,
+    )
+    add_single_node_metrics(tuning)
+    write_csv(results_dir / "single_node_tuning_summary.csv", tuning)
+
     strong = summarize(
         read_csv(results_dir / "mpi_strong_raw.csv"),
         [
@@ -299,6 +307,7 @@ def main() -> None:
     maybe_plot(results_dir, single, strong, weak)
 
     print(f"single-node rows: {len(single)} -> {results_dir / 'single_node_summary.csv'}")
+    print(f"tuning rows     : {len(tuning)} -> {results_dir / 'single_node_tuning_summary.csv'}")
     print(f"MPI strong rows : {len(strong)} -> {results_dir / 'mpi_strong_summary.csv'}")
     print(f"MPI weak rows   : {len(weak)} -> {results_dir / 'mpi_weak_summary.csv'}")
 

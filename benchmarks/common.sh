@@ -11,23 +11,24 @@ DATA_DIR="${DATA_DIR:-$PROJECT_DIR/benchmark_data}"
 TMP_BASE="${TMP_BASE:-${TMPDIR:-/tmp}}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-1048576}"
-CHUNK_MB="${CHUNK_MB:-128}"
-MERGE_FAN="${MERGE_FAN:-8}"
-TRIALS="${TRIALS:-5}"
-VERIFY="${VERIFY:-1}"
+CHUNK_MB="${CHUNK_MB:-64}"
+MERGE_FAN="${MERGE_FAN:-4}"
+TRIALS="${TRIALS:-1}"
+VERIFY="${VERIFY:-0}"
 SEED="${SEED:-42}"
+RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-0}"
 
 # Two intentionally different regimes:
 # - many short records: stresses comparisons, indexing, task scheduling;
 # - fewer large records: stresses I/O bandwidth and payload movement.
-BENCHMARK_CASES="${BENCHMARK_CASES:-many_small:5000000:64 few_large:2048:1048576}"
+BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 
 THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
-MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 2 4 8 16}"
+MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 16}"
 STRONG_NODES="${STRONG_NODES:-1 2 4 8}"
 RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
-WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-1000000}"
-WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-256}"
+WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-6250000}"
+WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-64}"
 WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
 
 mkdir -p "$RESULTS_DIR" "$DATA_DIR" "$TMP_BASE"
@@ -167,7 +168,11 @@ extract_generated_runs() {
 run_and_capture_sort() {
     local out_log="$1"
     shift
-    "$@" >"$out_log" 2>&1
+    if (( RUN_TIMEOUT_SECONDS > 0 )); then
+        timeout "$RUN_TIMEOUT_SECONDS" "$@" >"$out_log" 2>&1
+    else
+        "$@" >"$out_log" 2>&1
+    fi
 }
 
 write_csv_header() {

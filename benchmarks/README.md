@@ -1,16 +1,40 @@
 # Benchmark suite
 
-Questa cartella contiene la campagna di benchmark finale per il progetto.
+Questa cartella contiene gli script per misurare speedup, efficiency, strong scaling e weak scaling del progetto.
 
-## Cosa abbiamo preso da `benchmarks_others`
+La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e guidati da una fase di tuning, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
-Gli script del collega fanno tre cose utili:
+## Perche' ora c'e' un tuning
 
-- separano OpenMP, FastFlow e MPI;
-- misurano sia payload piccoli sia payload grandi;
-- producono CSV e grafici per speedup/efficiency.
+I risultati su `manySmall50M` mostrano che OpenMP parallelizza bene la fase di sort, ma il merge resta il collo di bottiglia:
 
-Qui manteniamo la stessa idea, ma con meno combinazioni e job separati. L'obiettivo e' rispettare la consegna senza sovraccaricare lo spmcluster.
+```text
+threads 1  -> totale 34.5s, merge 19.8s
+threads 32 -> totale 19.5s, merge 14.8s
+```
+
+Per questo la campagna finale non deve fissare `CHUNK_MB` e `MERGE_FAN` a caso. Prima si esegue:
+
+```text
+slurm_tune_single_node.sbatch
+```
+
+che produce:
+
+```text
+benchmark_results/single_node_tuning_raw.csv
+benchmark_results/single_node_tuning_summary.csv
+```
+
+Il tuning prova poche combinazioni:
+
+```bash
+CHUNK_MB_LIST="64 128 256"
+MERGE_FAN_LIST="4 8 16"
+THREAD_LIST="8 32"
+```
+
+Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`, controllando che non peggiori troppo a `threads=8`.
 
 ## Campagna finale
 
@@ -56,7 +80,7 @@ Thread ridotti:
 1 8 32
 ```
 
-Questa parte serve a mostrare cosa cambia passando da molti record piccoli a meno record con payload grande. Non serve aspettarsi efficiency migliore: payload grandi spesso rendono il programma piu' I/O-bound.
+Questa parte mostra il passaggio da molti record piccoli a meno record con payload piu' grande. Non deve per forza migliorare l'efficiency: payload grandi spesso spostano il collo di bottiglia su I/O e movimento dati.
 
 ### MPI strong scaling
 
@@ -99,48 +123,35 @@ Quindi:
 
 ## Script principali
 
+- `slurm_tune_single_node.sbatch`: tuning `CHUNK_MB`/`MERGE_FAN`;
 - `slurm_single_node.sbatch`: single-node OpenMP/FastFlow;
 - `slurm_mpi_scaling.sbatch`: MPI strong oppure weak;
+- `tune_single_node.sh`: loop di tuning;
 - `single_node.sh`: esecuzione single-node;
 - `mpi_strong.sh`: strong scaling;
 - `mpi_weak.sh`: weak scaling;
 - `analyze.py`: genera summary CSV e grafici.
 
-## Parametri consigliati
+## Default attuali
 
 ```bash
-CHUNK_MB=128
-MERGE_FAN=8
+CHUNK_MB=64
+MERGE_FAN=4
 TRIALS=1
 VERIFY=0
+RUN_TIMEOUT_SECONDS=180
 ```
 
-`VERIFY=1` va usato solo su una run piccola finale di correttezza.
-
-## Esecuzione rapida
-
-La sequenza pronta e' in:
-
-```text
-benchmarks/GUIDA_MISURAZIONI_CLUSTER.md
-```
-
-La guida passo-passo e' in:
-
-```text
-benchmarks/GUIDA_CLUSTER_PRINCIPIANTI.md
-```
+`VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
 
 ## Output
 
 File principali:
 
 ```text
-benchmark_results/single_node_raw.csv
+benchmark_results/single_node_tuning_summary.csv
 benchmark_results/single_node_summary.csv
-benchmark_results/mpi_strong_raw.csv
 benchmark_results/mpi_strong_summary.csv
-benchmark_results/mpi_weak_raw.csv
 benchmark_results/mpi_weak_summary.csv
 benchmark_results/*.log
 ```
@@ -156,7 +167,7 @@ Totale
 ## Note metodologiche
 
 - `50M` sostituisce `20M` come caso principale per evitare tempi troppo corti.
-- `fewBig2048` serve a discutere il comportamento I/O-bound.
-- OpenMP e FastFlow sono in job separati, cosi' un errore FastFlow non rovina le misure OpenMP.
+- Prima si fa tuning OpenMP, poi si usa la stessa configurazione per la campagna finale.
+- OpenMP e FastFlow sono in job separati, cosi' un problema FastFlow non rovina le misure OpenMP.
 - Strong e weak scaling MPI sono separati per mantenere i job leggibili.
 - `node09` non viene usato: gli script Slurm usano `node01-node08`, cioe' i nodi omogenei.
