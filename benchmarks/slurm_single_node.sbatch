@@ -37,10 +37,12 @@ if command -v scontrol >/dev/null 2>&1; then
     scontrol show hostnames "${SLURM_JOB_NODELIST:-}"
 fi
 
-export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64 payload512:5000000:512}"
-export TRIALS="${TRIALS:-5}"
-export VERIFY="${VERIFY:-1}"
+export THREAD_LIST="${THREAD_LIST:-1 2 4 8 12 16 20 24 28 32}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
+export CHUNK_MB="${CHUNK_MB:-128}"
+export MERGE_FAN="${MERGE_FAN:-8}"
+export TRIALS="${TRIALS:-3}"
+export VERIFY="${VERIFY:-0}"
 
 ./benchmarks/single_node.sh
 python3 benchmarks/analyze.py --results-dir benchmark_results

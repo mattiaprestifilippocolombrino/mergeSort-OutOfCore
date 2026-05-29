@@ -18,6 +18,11 @@ write_csv_header "$CSV" \
     "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
+case_count="$(wc -w <<<"$WEAK_CASES")"
+node_count="$(wc -w <<<"$STRONG_NODES")"
+thread_count="$(wc -w <<<"$MPI_THREAD_LIST")"
+planned_runs=$((case_count * node_count * thread_count * TRIALS))
+log "Run MPI weak pianificate al massimo: $planned_runs ($case_count casi x $node_count nodi x $thread_count thread/rank x $TRIALS trial)"
 
 for weak_spec in $WEAK_CASES; do
     case_name_weak="$(case_name "$weak_spec")"

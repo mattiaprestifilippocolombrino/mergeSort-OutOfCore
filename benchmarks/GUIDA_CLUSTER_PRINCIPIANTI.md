@@ -1,83 +1,26 @@
-# Guida per eseguire i benchmark sullo spmcluster
+# Guida principianti per i benchmark sullo spmcluster
 
-Questa guida parte da zero. L'idea e':
+Questa guida assume che il progetto venga portato sul cluster tramite GitHub. I comandi Windows vanno eseguiti da PowerShell. I comandi Linux vanno eseguiti dopo il login SSH sul cluster.
 
-1. preparare il progetto da WSL;
-2. copiarlo sul cluster usando PowerShell;
-3. entrare nel cluster;
-4. lanciare i benchmark con Slurm;
-5. controllare lo stato dei job;
-6. scaricare CSV, log e grafici.
-
-Sostituisci sempre `LOGIN` con il tuo username del cluster, cioe' la parte prima di `@studenti.unipi.it`, tutta minuscola.
-
-## 0. Prima di iniziare
-
-Se sei fuori dalla rete UNIPI, attiva prima la VPN UNIPI.
-
-Da PowerShell prova il login:
-
-```powershell
-ssh LOGIN@spmcluster.unipi.it
-```
-
-Se il login funziona, esci dal cluster:
-
-```bash
-exit
-```
-
-## 1. Creare un archivio del progetto da WSL
-
-Esegui questi comandi da PowerShell, non dentro WSL.
-
-Il progetto locale si trova in:
+Sostituisci sempre:
 
 ```text
-/home/matti/spm projects/spm
+LOGIN
 ```
 
-Crea un archivio `.tar.gz` evitando build, dati e risultati vecchi:
+con il tuo username del cluster, cioe' la parte prima di `@studenti.unipi.it`, tutta minuscola.
 
-```powershell
-wsl bash -lc 'cd "/home/matti/spm projects" && tar --exclude=spm/build --exclude=spm/build_bench --exclude=spm/benchmark_data --exclude=spm/benchmark_results --exclude=spm/.git -czf /tmp/spm.tar.gz spm'
+Sostituisci:
+
+```text
+GITHUB_URL
 ```
 
-Copia l'archivio da WSL alla cartella temporanea Windows:
+con l'URL del tuo repository GitHub.
 
-```powershell
-wsl cp /tmp/spm.tar.gz "/mnt/c/Users/$env:USERNAME/AppData/Local/Temp/spm.tar.gz"
-```
+## 1. Entrare nel cluster
 
-Controlla che il file esista:
-
-```powershell
-dir "$env:TEMP\spm.tar.gz"
-```
-
-## 2. Copiare il progetto sul cluster
-
-Crea sul cluster due cartelle dedicate:
-
-```powershell
-ssh LOGIN@spmcluster.unipi.it "mkdir -p ~/spm_upload ~/spmProject"
-```
-
-Copia l'archivio:
-
-```powershell
-scp "$env:TEMP\spm.tar.gz" LOGIN@spmcluster.unipi.it:~/spm_upload/
-```
-
-Estrai il progetto dentro `~/spmProject`:
-
-```powershell
-ssh LOGIN@spmcluster.unipi.it "cd ~/spmProject && tar -xzf ~/spm_upload/spm.tar.gz --strip-components=1"
-```
-
-Nota importante: non copiare direttamente dentro `~/` con `rsync -av`. La home del cluster deve restare con permessi `700`. Usa sempre sottocartelle come `~/spm_upload` o `~/spmProject`.
-
-## 3. Entrare nel cluster e controllare il progetto
+Se sei fuori dalla rete UNIPI, attiva prima la VPN UNIPI.
 
 Da PowerShell:
 
@@ -85,30 +28,30 @@ Da PowerShell:
 ssh LOGIN@spmcluster.unipi.it
 ```
 
-Ora sei sul cluster. Da qui in poi i comandi sono comandi Linux.
+Se il login funziona, sei sul frontend del cluster.
 
-Vai nella cartella del progetto:
+## 2. Scaricare il progetto da GitHub
+
+Sul cluster:
 
 ```bash
+cd ~
+git clone GITHUB_URL spmProject
 cd ~/spmProject
 ```
 
-Controlla che ci siano gli script:
+Se il progetto era gia' stato clonato:
 
 ```bash
-ls benchmarks
+cd ~/spmProject
+git pull
 ```
 
-Controlla che gli script siano leggibili dalla shell:
+Se il repository e' privato, usa l'accesso GitHub che hai configurato: HTTPS con token oppure SSH key GitHub. Il cluster deve poter leggere il repository.
 
-```bash
-bash -n benchmarks/*.sh benchmarks/*.sbatch
-python3 -m py_compile benchmarks/analyze.py
-```
+## 3. Controllare strumenti e script
 
-## 4. Controllare gli strumenti disponibili
-
-Sempre sul cluster, dentro `~/spmProject`:
+Dentro `~/spmProject`:
 
 ```bash
 which cmake
@@ -119,13 +62,13 @@ which squeue
 which mpicxx || which mpic++ || which mpiCC
 ```
 
-Se qualche comando manca, controlla i moduli disponibili:
+Se qualche comando manca, guarda i moduli disponibili:
 
 ```bash
 module avail
 ```
 
-Esempi tipici, se servono:
+E carica quelli necessari, per esempio:
 
 ```bash
 module load cmake
@@ -133,19 +76,20 @@ module load gcc
 module load mpi
 ```
 
-I nomi dei moduli possono cambiare sul cluster. Se `module load mpi` non funziona, usa `module avail` e scegli il modulo MPI disponibile.
+I nomi precisi dei moduli possono cambiare sul cluster.
 
-## 5. Installare FastFlow, se manca
-
-FastFlow serve per avere anche `ff_sort` nei benchmark single-node.
-
-Controlla se esiste gia':
+Controlla che gli script siano sintatticamente corretti:
 
 ```bash
-ls ~/fastFlow
+bash -n benchmarks/*.sh benchmarks/*.sbatch
+python3 -m py_compile benchmarks/analyze.py
 ```
 
-Se non esiste:
+## 4. Installare FastFlow
+
+FastFlow serve per produrre anche i risultati `ff`.
+
+Sul cluster:
 
 ```bash
 cd ~
@@ -153,66 +97,105 @@ git clone https://github.com/fastflow/fastflow.git fastFlow
 cd ~/spmProject
 ```
 
-Quando lanci il benchmark single-node, passa:
+Se `~/fastFlow` esiste gia':
+
+```bash
+ls ~/fastFlow
+```
+
+Quando lanci i benchmark single-node, passa sempre:
 
 ```bash
 FF_ROOT="$HOME/fastFlow"
 ```
 
-Se FastFlow non e' installato, lo script esegue comunque OpenMP e salta FastFlow.
+Se FastFlow manca, gli script eseguono OpenMP e saltano FastFlow.
 
-## 6. Primo test rapido single-node
+## 5. Parametri scelti
 
-Questo serve solo per controllare che tutto compili e giri.
+Rispetto a `benchmarks_others`, questa suite misura le stesse cose principali ma in modo piu' leggibile:
+
+- single-node OpenMP/FastFlow;
+- payload diversi;
+- MPI strong scaling;
+- MPI weak scaling;
+- CSV aggregati con speedup ed efficiency;
+- log con `Fase 1`, `Fase 2`, `Totale`.
+
+Parametri consigliati:
+
+```bash
+CHUNK_MB=128
+MERGE_FAN=8
+```
+
+`CHUNK_MB=128` tiene basso il numero di file temporanei senza eliminare il parallelismo.
+
+`MERGE_FAN=8` e' meglio del vecchio `64`, perche' con poche decine di run temporanee evita che il merge finisca in un unico gruppo quasi seriale.
+
+Per misure finali usa:
+
+```bash
+VERIFY=0
+```
+
+La verifica legge di nuovo input e output, quindi aggiunge I/O che sporca il tempo misurato. Usa `VERIFY=1` nei test rapidi e in una sola run di controllo correttezza.
+
+Gli script stampano quante run stanno per eseguire. Esempio:
+
+```text
+[bench] Run single-node pianificate: 60
+```
+
+Se vedi un numero enorme, probabilmente hai messo troppi casi nella stessa job.
+
+## 6. Test rapido single-node
+
+Serve solo per controllare che compili e parta.
 
 ```bash
 cd ~/spmProject
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
 TRIALS=1 \
 VERIFY=1 \
 FF_ROOT="$HOME/fastFlow" \
 sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Il comando `sbatch` non esegue subito nel terminale: invia un job a Slurm.
-
-Controlla la coda:
+Controlla lo stato:
 
 ```bash
 squeue -u $USER
 ```
 
-Quando il job finisce, guarda gli output:
+Quando finisce:
 
 ```bash
-ls -lh slurm_single_*.out slurm_single_*.err
 tail -n 80 slurm_single_*.out
 tail -n 80 slurm_single_*.err
-```
-
-Se tutto va bene, trovi i risultati in:
-
-```bash
-ls benchmark_results
 cat benchmark_results/single_node_summary.csv
 ```
 
-## 7. Benchmark single-node serio
+## 7. Benchmark single-node principale
 
-Questo e' il benchmark da usare per la relazione per OpenMP/FastFlow.
+Questo e' il benchmark principale per speedup ed efficiency OpenMP/FastFlow. Usa molti record e payload piccolo.
 
 ```bash
 cd ~/spmProject
-BENCHMARK_CASES="manySmall50M:50000000:64 payload512:5000000:512 payload2048:1000000:2048" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
 TRIALS=3 \
-VERIFY=1 \
+VERIFY=0 \
 FF_ROOT="$HOME/fastFlow" \
 sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Cosa produce:
+Questa job produce:
 
 ```text
 benchmark_results/single_node_raw.csv
@@ -223,68 +206,51 @@ slurm_single_JOBID.out
 slurm_single_JOBID.err
 ```
 
-Il job single-node usa `node01`. Gli input e i temporanei vengono creati sotto `/scratch/$USER/spmRun/JOBID` se disponibile, altrimenti sotto `/tmp/$USER/spmRun/JOBID`. I CSV restano in `benchmark_results`.
+## 8. Benchmark payload diversi
 
-## 8. Benchmark diagnostico del merge
-
-Questo non e' il benchmark principale. Serve solo per capire se il merge crea gruppi paralleli.
+Questo serve per rispettare bene la parte della consegna sulla distribuzione del payload. Va lanciato come seconda job.
 
 ```bash
 cd ~/spmProject
-BENCHMARK_CASES="manySmall20M:20000000:64" \
-THREAD_LIST="1 2 4 8 16" \
-CHUNK_MB=64 \
-MERGE_FAN=16 \
-MERGE_VERBOSE=1 \
+BENCHMARK_CASES="payload16:20000000:16 payload512:5000000:512 payload2048:31250:2048" \
+THREAD_LIST="1 4 8 16 32" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
 TRIALS=2 \
-VERIFY=1 \
+VERIFY=0 \
 FF_ROOT="$HOME/fastFlow" \
+APPEND_RESULTS=1 \
 sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Poi cerca le righe `[merge]` nei log:
-
-```bash
-grep -R "\[merge\]" benchmark_results/*.log | head -n 40
-```
-
-Interpretazione rapida:
-
-```text
-groups=1
-```
-
-vuol dire che in quella passata il merge non aveva gruppi indipendenti da parallelizzare.
-
-```text
-groups=4 mode=parallel
-```
-
-vuol dire che in quella passata il merge ha creato 4 gruppi indipendenti.
+`APPEND_RESULTS=1` e' importante: aggiunge queste righe al CSV single-node gia' prodotto dalla job principale.
 
 ## 9. Benchmark MPI strong e weak scaling
 
-Questo usa `node01-node08`, cioe' gli 8 nodi omogenei. Evita `node09`.
-
-Run seria consigliata:
+Questo usa `node01-node08`, evitando `node09` perche' e' diverso.
 
 ```bash
 cd ~/spmProject
 BENCHMARK_CASES="manySmall50M:50000000:64" \
-WEAK_CASES="weakSmall:10000000:64" \
+WEAK_CASES="weakSmall10M:10000000:64" \
+STRONG_NODES="1 2 4 8" \
+RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 2 4 8 16" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
 TRIALS=3 \
-VERIFY=1 \
+VERIFY=0 \
 sbatch benchmarks/slurm_mpi_scaling.sbatch
 ```
 
 Cosa misura:
 
-- strong scaling: stesso input, nodi 1, 2, 4, 8;
-- weak scaling: input che cresce con i nodi;
-- thread per processo MPI: `1 2 4 8 16`.
+- strong scaling: stesso dataset, nodi 1, 2, 4, 8;
+- weak scaling: record per nodo costanti, dataset totale crescente;
+- processi MPI: 1, 2, 4, 8, perche' usiamo un rank per nodo;
+- thread per processo: `1 2 4 8 16`.
 
-Cosa produce:
+Output principali:
 
 ```text
 benchmark_results/mpi_strong_raw.csv
@@ -297,26 +263,82 @@ slurm_mpi_JOBID.out
 slurm_mpi_JOBID.err
 ```
 
-Nota: nel job MPI il dataset resta in `benchmark_data/`, dentro il progetto, perche' deve essere visibile da tutti i nodi. I temporanei dei rank vanno invece sotto `/scratch` o `/tmp`.
-
 ## 10. Weak scaling con payload piu' grande
 
-Se hai tempo, puoi aggiungere un job solo weak con payload piu' grande:
+Questo e' opzionale. Fallo solo se hai tempo.
 
 ```bash
 cd ~/spmProject
 RUN_STRONG=0 \
 RUN_WEAK=1 \
 WEAK_CASES="weakPayload512:2000000:512 weakPayload2048:250000:2048" \
+STRONG_NODES="1 2 4 8" \
+RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 2 4 8 16" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
 TRIALS=3 \
-VERIFY=1 \
+VERIFY=0 \
+APPEND_RESULTS=1 \
 sbatch benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-Questo serve per discutere cosa succede quando aumenta il peso dell'I/O rispetto all'ordinamento.
+Serve per discutere cosa succede quando il payload cresce e aumenta il peso dell'I/O.
 
-## 11. Comandi Slurm essenziali
+## 11. Diagnostica merge
+
+Non e' una misura principale. Serve per capire se il merge sta creando gruppi paralleli.
+
+```bash
+cd ~/spmProject
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+THREAD_LIST="1 2 4 8 16" \
+CHUNK_MB=64 \
+MERGE_FAN=8 \
+MERGE_VERBOSE=1 \
+TRIALS=2 \
+VERIFY=0 \
+FF_ROOT="$HOME/fastFlow" \
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
+```
+
+Poi:
+
+```bash
+grep -R "\[merge\]" benchmark_results/*.log | head -n 40
+```
+
+Interpretazione:
+
+```text
+groups=1
+```
+
+vuol dire che quella passata del merge non aveva gruppi indipendenti.
+
+```text
+groups=4 mode=parallel
+```
+
+vuol dire che quella passata ha creato gruppi paralleli.
+
+## 12. Run di controllo correttezza
+
+Dopo i benchmark finali, fai una piccola run con verifica attiva. Non serve per le curve, serve solo per dire nella relazione che hai controllato la correttezza dell'output.
+
+```bash
+cd ~/spmProject
+BENCHMARK_CASES="check:1000000:64" \
+THREAD_LIST="1 8" \
+CHUNK_MB=128 \
+MERGE_FAN=8 \
+TRIALS=1 \
+VERIFY=1 \
+FF_ROOT="$HOME/fastFlow" \
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
+```
+
+## 13. Comandi Slurm utili
 
 Vedere i tuoi job:
 
@@ -324,40 +346,27 @@ Vedere i tuoi job:
 squeue -u $USER
 ```
 
-Vedere tutti i job in coda:
-
-```bash
-squeue
-```
-
-Cancellare un job:
+Cancellare una job:
 
 ```bash
 scancel JOBID
 ```
 
-Vedere i file prodotti:
-
-```bash
-ls -lh
-ls -lh benchmark_results
-```
-
-Leggere la fine di un output:
+Vedere la fine degli output:
 
 ```bash
 tail -n 80 slurm_single_*.out
 tail -n 80 slurm_mpi_*.out
 ```
 
-Leggere errori:
+Vedere gli errori:
 
 ```bash
 tail -n 120 slurm_single_*.err
 tail -n 120 slurm_mpi_*.err
 ```
 
-Seguire un file mentre il job sta girando:
+Seguire una job mentre gira:
 
 ```bash
 tail -f slurm_single_*.out
@@ -365,32 +374,42 @@ tail -f slurm_single_*.out
 
 Per uscire da `tail -f`, premi `Ctrl+C`.
 
-## 12. Rigenerare summary e grafici
+## 14. Rigenerare summary e grafici
 
-Di solito gli script Slurm lo fanno gia'. Se vuoi rifarlo a mano:
+Di solito gli script Slurm chiamano gia' `analyze.py`. Se vuoi rifarlo a mano:
 
 ```bash
 cd ~/spmProject
 python3 benchmarks/analyze.py --results-dir benchmark_results
 ```
 
-Controlla i CSV:
+I file importanti sono:
 
-```bash
-head benchmark_results/single_node_summary.csv
-head benchmark_results/mpi_strong_summary.csv
-head benchmark_results/mpi_weak_summary.csv
+```text
+benchmark_results/single_node_summary.csv
+benchmark_results/mpi_strong_summary.csv
+benchmark_results/mpi_weak_summary.csv
+benchmark_results/plots/
 ```
 
-Controlla i grafici:
+Se `matplotlib` non e' installato, i CSV vengono prodotti comunque. I grafici PNG sono opzionali.
+
+## 15. Preparare un archivio risultati sul cluster
+
+Quando hai finito le misure:
 
 ```bash
-ls benchmark_results/plots
+cd ~/spmProject
+tar -czf spm_benchmark_results.tar.gz benchmark_results slurm_single_*.out slurm_single_*.err slurm_mpi_*.out slurm_mpi_*.err
 ```
 
-Se `matplotlib` non e' installato, i CSV vengono comunque prodotti. I grafici PNG sono opzionali.
+Controlla:
 
-## 13. Scaricare i risultati su Windows
+```bash
+ls -lh spm_benchmark_results.tar.gz
+```
+
+## 16. Spostare i risultati su Windows
 
 Esci dal cluster:
 
@@ -398,38 +417,26 @@ Esci dal cluster:
 exit
 ```
 
-Ora sei di nuovo in PowerShell.
-
-Crea una cartella sul Desktop:
+Da PowerShell:
 
 ```powershell
 mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
 ```
 
-Scarica i risultati:
+Se vuoi scaricare direttamente la cartella invece dell'archivio:
 
 ```powershell
-scp -r m.prestifilippoco@spmcluster.unipi.it:~/spmProject/benchmark_results "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp m.prestifilippoco@spmcluster.unipi.it:~/spmProject/slurm_*.out "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp m.prestifilippoco@spmcluster.unipi.it:~/spmProject/slurm_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp -r LOGIN@spmcluster.unipi.it:~/spmProject/benchmark_results "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_single_*.out "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_single_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_mpi_*.out "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_mpi_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
 ```
 
-## 14. File importanti per la relazione
+## 17. Cosa usare nella relazione
 
-Usa soprattutto:
-
-```text
-single_node_summary.csv
-mpi_strong_summary.csv
-mpi_weak_summary.csv
-benchmark_results/plots/
-slurm_*.out
-benchmark_results/*.log
-```
-
-Ogni nuovo lancio riscrive i CSV raw della stessa famiglia di benchmark. Questo evita di mescolare prove vecchie e nuove. Se vuoi aggiungere righe agli stessi CSV, usa `APPEND_RESULTS=1`.
-
-Nel single-node guarda:
+Per single-node:
 
 ```text
 impl
@@ -443,7 +450,7 @@ efficiency
 generated_runs
 ```
 
-Nel strong scaling guarda:
+Per strong scaling:
 
 ```text
 nodes
@@ -455,44 +462,24 @@ strong_speedup
 strong_efficiency
 ```
 
-Nel weak scaling guarda:
+Per weak scaling:
 
 ```text
 nodes
 ranks
 threads_per_rank
 records
+records_per_node
 avg_total_s
 weak_efficiency
 ```
 
-## 15. Se qualcosa va male
+Nei log puoi commentare:
 
-Se il job fallisce subito:
-
-```bash
-tail -n 120 slurm_single_*.err
-tail -n 120 slurm_mpi_*.err
+```text
+Fase 1
+Fase 2
+Totale
 ```
 
-Se manca FastFlow:
-
-```bash
-ls ~/fastFlow
-FF_ROOT="$HOME/fastFlow" sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
-```
-
-Se manca MPI:
-
-```bash
-which mpicxx || which mpic++ || which mpiCC
-module avail
-```
-
-Se non riesci piu' a fare SSH e sospetti permessi della home, serve una sessione ancora aperta e questo comando:
-
-```bash
-chmod 700 ~
-```
-
-Per evitare il problema, non copiare mai archivi direttamente in `~/` con opzioni archive tipo `rsync -av`.
+Queste tre misure bastano per discutere bottleneck, merge, I/O e overhead senza introdurre microbenchmark inutili.

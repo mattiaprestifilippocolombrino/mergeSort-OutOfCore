@@ -10,6 +10,11 @@ slurm_single_*.out
 slurm_single_*.err
 slurm_mpi_*.out
 slurm_mpi_*.err
+slurm-*.out
+spmRun/
+spm_upload/
+spm.tar.gz
+*.tgz
 __pycache__/
 *.py[cod]
 core

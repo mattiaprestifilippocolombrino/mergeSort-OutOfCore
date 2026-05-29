@@ -12,7 +12,7 @@ TMP_BASE="${TMP_BASE:-${TMPDIR:-/tmp}}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-1048576}"
 CHUNK_MB="${CHUNK_MB:-128}"
-MERGE_FAN="${MERGE_FAN:-64}"
+MERGE_FAN="${MERGE_FAN:-8}"
 TRIALS="${TRIALS:-5}"
 VERIFY="${VERIFY:-1}"
 SEED="${SEED:-42}"
@@ -22,8 +22,8 @@ SEED="${SEED:-42}"
 # - fewer large records: stresses I/O bandwidth and payload movement.
 BENCHMARK_CASES="${BENCHMARK_CASES:-many_small:5000000:64 few_large:2048:1048576}"
 
-THREAD_LIST="${THREAD_LIST:-1 2 4 8 16}"
-MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 2 4 8}"
+THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
+MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 2 4 8 16}"
 STRONG_NODES="${STRONG_NODES:-1 2 4 8}"
 RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
 WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-1000000}"
@@ -72,7 +72,7 @@ run_mpi() {
     shift 3
 
     if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-        srun --mpi=pmix --cpu-bind=none -N "$nodes" -n "$ranks" -c "$threads" "$@"
+        srun --mpi=pmix --cpu-bind=none -N "$nodes" -n "$ranks" --ntasks-per-node "${RANKS_PER_NODE:-1}" -c "$threads" "$@"
     elif command -v mpirun >/dev/null 2>&1; then
         mpirun --oversubscribe -n "$ranks" "$@"
     else

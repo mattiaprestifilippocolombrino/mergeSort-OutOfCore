@@ -16,6 +16,15 @@ fi
 write_csv_header "$CSV" \
     "suite,impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
+impl_count=1
+if [[ -x "$BUILD_DIR/ff_sort" ]]; then
+    impl_count=2
+fi
+case_count="$(wc -w <<<"$BENCHMARK_CASES")"
+thread_count="$(wc -w <<<"$THREAD_LIST")"
+planned_runs=$((case_count * thread_count * TRIALS * impl_count))
+log "Run single-node pianificate: $planned_runs ($case_count casi x $thread_count thread x $TRIALS trial x $impl_count implementazioni)"
+
 run_impl() {
     local impl="$1"
     local case="$2"
