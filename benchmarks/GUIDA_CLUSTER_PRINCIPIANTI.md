@@ -172,7 +172,7 @@ THREAD_LIST="1 2" \
 TRIALS=1 \
 VERIFY=1 \
 FF_ROOT="$HOME/fastFlow" \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Il comando `sbatch` non esegue subito nel terminale: invia un job a Slurm.
@@ -209,7 +209,7 @@ THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
 TRIALS=3 \
 VERIFY=1 \
 FF_ROOT="$HOME/fastFlow" \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Cosa produce:
@@ -239,7 +239,7 @@ MERGE_VERBOSE=1 \
 TRIALS=2 \
 VERIFY=1 \
 FF_ROOT="$HOME/fastFlow" \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Poi cerca le righe `[merge]` nei log:
@@ -409,9 +409,9 @@ mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
 Scarica i risultati:
 
 ```powershell
-scp -r LOGIN@spmcluster.unipi.it:~/spmProject/benchmark_results "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_*.out "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp LOGIN@spmcluster.unipi.it:~/spmProject/slurm_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp -r m.prestifilippoco@spmcluster.unipi.it:~/spmProject/benchmark_results "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp m.prestifilippoco@spmcluster.unipi.it:~/spmProject/slurm_*.out "$env:USERPROFILE\Desktop\spm_benchmark_results"
+scp m.prestifilippoco@spmcluster.unipi.it:~/spmProject/slurm_*.err "$env:USERPROFILE\Desktop\spm_benchmark_results"
 ```
 
 ## 14. File importanti per la relazione
@@ -426,6 +426,8 @@ benchmark_results/plots/
 slurm_*.out
 benchmark_results/*.log
 ```
+
+Ogni nuovo lancio riscrive i CSV raw della stessa famiglia di benchmark. Questo evita di mescolare prove vecchie e nuove. Se vuoi aggiungere righe agli stessi CSV, usa `APPEND_RESULTS=1`.
 
 Nel single-node guarda:
 
@@ -477,7 +479,7 @@ Se manca FastFlow:
 
 ```bash
 ls ~/fastFlow
-FF_ROOT="$HOME/fastFlow" sbatch benchmarks/slurm_single_node.sbatch
+FF_ROOT="$HOME/fastFlow" sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Se manca MPI:
@@ -494,4 +496,3 @@ chmod 700 ~
 ```
 
 Per evitare il problema, non copiare mai archivi direttamente in `~/` con opzioni archive tipo `rsync -av`.
-

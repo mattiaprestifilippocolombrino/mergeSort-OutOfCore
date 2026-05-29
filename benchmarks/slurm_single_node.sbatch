@@ -5,7 +5,7 @@
 #SBATCH --nodelist=node01
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --time=01:00:00
+#SBATCH --time=00:25:00
 #SBATCH --output=slurm_single_%j.out
 #SBATCH --error=slurm_single_%j.err
 
@@ -38,6 +38,7 @@ if command -v scontrol >/dev/null 2>&1; then
 fi
 
 export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64 payload512:5000000:512}"
 export TRIALS="${TRIALS:-5}"
 export VERIFY="${VERIFY:-1}"
 

@@ -30,7 +30,7 @@ WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-1000000}"
 WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-256}"
 WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
 
-mkdir -p "$RESULTS_DIR" "$DATA_DIR"
+mkdir -p "$RESULTS_DIR" "$DATA_DIR" "$TMP_BASE"
 
 log() {
     printf '[bench] %s\n' "$*" >&2
@@ -173,7 +173,9 @@ run_and_capture_sort() {
 write_csv_header() {
     local file="$1"
     local header="$2"
-    if [[ ! -s "$file" ]]; then
+    if [[ "${APPEND_RESULTS:-0}" == "1" && -s "$file" ]]; then
+        return
+    else
         printf '%s\n' "$header" >"$file"
     fi
 }

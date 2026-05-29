@@ -10,6 +10,11 @@ slurm_single_*.out
 slurm_single_*.err
 slurm_mpi_*.out
 slurm_mpi_*.err
+__pycache__/
+*.py[cod]
+core
+core.*
+*.core
 
 # IDE files
 .vscode/

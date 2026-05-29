@@ -109,7 +109,7 @@ Questo misura OpenMP e FastFlow variando i thread su un nodo. Lo script Slurm e'
 Uso consigliato:
 
 ```bash
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Lo script usa di default:
@@ -137,7 +137,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64 payload512:5000000:512 payload2048:100
 THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
 TRIALS=3 \
 VERIFY=1 \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Se FastFlow e' installato in `~/fastFlow`:
@@ -148,7 +148,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
 TRIALS=3 \
 VERIFY=1 \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 ## 6. Benchmark MPI strong e weak scaling
@@ -170,6 +170,8 @@ VERIFY=1
 ```
 
 Con questi valori il numero di processi MPI cresce con i nodi: 1, 2, 4, 8. I thread per processo cambiano con `MPI_THREAD_LIST`. Questo copre la richiesta senza moltiplicare troppo il numero di run.
+
+Gli input MPI restano in `benchmark_data/`, visibili da tutti i nodi. Gli output finali temporanei e i file intermedi vengono scritti sotto `/scratch/$USER/spmRun/JOBID` se disponibile, altrimenti sotto `/tmp/$USER/spmRun/JOBID`.
 
 Per una run MPI piu' seria:
 
@@ -228,7 +230,7 @@ MERGE_FAN=16 \
 MERGE_VERBOSE=1 \
 TRIALS=2 \
 VERIFY=1 \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Nei log `benchmark_results/*.log` cerca righe del tipo:
@@ -311,3 +313,5 @@ T_mpi_tree_merge ~= comunicazione MPI + merge ad albero
 ```
 
 Questo e' coerente con quello che misurano gli script, perche' i programmi stampano gia' `Fase 1`, `Fase 2` e `Totale`.
+
+Nota: i CSV raw vengono riscritti a ogni run per evitare di mischiare prove vecchie e nuove. Se vuoi aggiungere righe a CSV esistenti, lancia con `APPEND_RESULTS=1`.

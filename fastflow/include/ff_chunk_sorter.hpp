@@ -242,6 +242,8 @@ inline std::vector<std::string> ffSortToRuns(
     farm.add_emitter(&emitter);  //si aggiunge l'emitter alla farm.
     farm.add_workers(w_ptrs);  //si aggiunge il vettore dei puntatori ai worker alla farm.
     farm.remove_collector();   // si rimuove il collector 
+    farm.no_mapping();
+    farm.blocking_mode(true);
 
     // Avvio la farm e aspetto che finisca (bloccante).
     int ret = farm.run_and_wait_end();  //esegue la farm bloccando fin quando tutti i task non sono finiti.

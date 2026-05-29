@@ -38,7 +38,7 @@ for weak_spec in $WEAK_CASES; do
             total_cores=$((ranks * threads))
 
             for trial in $(seq 1 "$TRIALS"); do
-                output="$DATA_DIR/out_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"
+                output="$TMP_BASE/out_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"
                 log_file="$RESULTS_DIR/mpi_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
 
                 log "MPI weak case=$case_name_weak nodes=$nodes records=$records ranks=$ranks threads/rank=$threads trial=$trial"
@@ -53,6 +53,9 @@ for weak_spec in $WEAK_CASES; do
                 rm -f "$output"
 
                 generated_runs="$(extract_generated_runs <"$log_file")"
+                if [[ "$generated_runs" == "0" ]]; then
+                    generated_runs="NA"
+                fi
                 sort_s="$(extract_seconds "Fase 1" <"$log_file")"
                 merge_s="$(extract_seconds "Fase 2" <"$log_file")"
                 total_s="$(extract_seconds "Totale" <"$log_file")"

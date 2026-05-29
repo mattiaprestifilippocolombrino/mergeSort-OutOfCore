@@ -9,7 +9,7 @@ Questa cartella contiene i benchmark ricreati per il progetto, prendendo spunto 
 
 ## Casi misurati
 
-I casi di default sono volutamente piccoli, utili per prove rapide:
+I casi di default negli script shell sono volutamente piccoli, utili per prove rapide:
 
 - `many_small`: molti record, payload piccolo. Stressa ordinamento degli indici, scheduling dei task e confronto delle chiavi.
 - `few_large`: meno record, payload grande. Stressa I/O, copie dei payload e merge.
@@ -47,6 +47,13 @@ TRIALS=5
 VERIFY=1
 CHUNK_MB=128
 MERGE_FAN=64
+```
+
+Lo script Slurm single-node usa default piu' adatti al cluster:
+
+```bash
+BENCHMARK_CASES="manySmall20M:20000000:64 payload512:5000000:512"
+THREAD_LIST="1 2 4 8 16 32"
 ```
 
 Il CSV grezzo e' `benchmark_results/single_node_raw.csv`.
@@ -107,11 +114,11 @@ Anche qui il default mantiene un rank MPI per nodo e varia i thread per rank con
 Per lo spmcluster conviene usare gli script `.sbatch` inclusi. Il job single-node usa `node01`; il job MPI usa `node01-node08`, cioe' gli 8 nodi omogenei del cluster:
 
 ```bash
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 sbatch benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-Gli input e gli output MPI sono messi in `benchmark_data/`, così sono visibili a tutti i nodi se la directory del progetto e' su filesystem condiviso. I temporanei intermedi dei rank restano su `/tmp` o su `$TMPDIR`.
+Gli input MPI sono messi in `benchmark_data/`, così sono visibili a tutti i nodi se la directory del progetto e' su filesystem condiviso. Gli output finali temporanei e i file intermedi dei rank restano invece in `$TMP_BASE`, sotto `/scratch/$USER/spmRun/$SLURM_JOB_ID` se disponibile, altrimenti sotto `/tmp/$USER/spmRun/$SLURM_JOB_ID`.
 
 Nel job single-node gli input e i temporanei vengono messi nella directory di run del job, sotto `/scratch/$USER/spmRun/$SLURM_JOB_ID` se disponibile, altrimenti sotto `/tmp/$USER/spmRun/$SLURM_JOB_ID`. Nel job MPI gli input restano in `benchmark_data/` per essere visibili a tutti i nodi, mentre i temporanei dei rank vanno nella directory di run locale.
 
@@ -122,7 +129,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64 payload512:5000000:512 payload2048:100
 THREAD_LIST="1 2 4 8 12 16 20 24 28 32" \
 TRIALS=3 \
 VERIFY=1 \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Esempio diagnostico sul merge:
@@ -135,13 +142,14 @@ MERGE_FAN=16 \
 MERGE_VERBOSE=1 \
 TRIALS=2 \
 VERIFY=1 \
-sbatch benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 ## Note metodologiche
 
 - Gli script compilano in Release con `PAYLOAD_MAX_BUILD=1048576`, così il generatore puo' coprire anche payload grandi.
 - Se FastFlow non e' disponibile, i benchmark OpenMP continuano e `ff_sort` viene saltato.
+- I CSV raw vengono riscritti a ogni run, così i summary non mescolano misure vecchie e nuove. Se vuoi appendere esplicitamente, imposta `APPEND_RESULTS=1`.
 - Con `TRIALS >= 3`, `analyze.py` scarta il trial piu' lento prima di fare la media, come negli script esterni.
 - I log completi restano in `benchmark_results/*.log`, utili per discutere i bottleneck di `Fase 1` e `Fase 2`.
 - Nel job MPI puoi impostare `RUN_STRONG=0` o `RUN_WEAK=0` per eseguire solo una delle due famiglie di misure.
