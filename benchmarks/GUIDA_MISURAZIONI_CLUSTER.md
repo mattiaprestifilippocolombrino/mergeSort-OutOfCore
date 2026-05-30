@@ -98,6 +98,9 @@ cat benchmark_results/single_node_summary.csv
 ## 4. MPI strong scaling
 
 Dataset fisso, nodi crescenti. Interpreta i risultati con Amdahl: merge, I/O e comunicazione limitano lo speedup.
+Lo script genera il dataset in `benchmark_data`, poi lo copia automaticamente
+su `/tmp` dei nodi usati dalla run MPI prima di lanciare il sorter. Questa
+copia non entra nei tempi `Fase 1/Fase 2/Totale`.
 
 ```bash
 RUN_STRONG=1 RUN_WEAK=0 \
@@ -121,6 +124,8 @@ cat benchmark_results/mpi_strong_summary.csv
 ## 5. MPI weak scaling
 
 Il lavoro cresce con i nodi: `6.25M` record per nodo, quindi `50M` record a 8 nodi. Interpreta i risultati con Gustafson e con la weak efficiency.
+Anche qui ogni input viene copiato su `/tmp` locale dei nodi prima della misura,
+cosi' i rank non leggono le stripe da NFS.
 
 ```bash
 RUN_STRONG=0 RUN_WEAK=1 \

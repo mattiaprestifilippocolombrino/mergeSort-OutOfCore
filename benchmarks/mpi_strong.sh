@@ -46,6 +46,7 @@ for spec in $BENCHMARK_CASES; do
         fi
 
         ranks=$((nodes * RANKS_PER_NODE))
+        mpi_input="$(stage_mpi_input "$input" "$nodes")"
 
         for threads in $MPI_THREAD_LIST; do
             total_cores=$((ranks * threads))
@@ -56,7 +57,7 @@ for spec in $BENCHMARK_CASES; do
 
                 log "MPI strong case=$name nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial"
                 if ! run_and_capture_sort "$log_file" \
-                    run_mpi "$nodes" "$ranks" "$threads" "$BUILD_DIR/mpi_sort" "$input" "$output" \
+                    run_mpi "$nodes" "$ranks" "$threads" "$BUILD_DIR/mpi_sort" "$mpi_input" "$output" \
                         --chunk-mb "$CHUNK_MB" \
                         --threads "$threads" \
                         --tmp-dir "$TMP_BASE" \

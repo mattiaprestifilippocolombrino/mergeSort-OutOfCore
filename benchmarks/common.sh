@@ -135,6 +135,13 @@ run_single_benchmark() {
     fi
 }
 
+slurm_node_list_for() {
+    local nodes="$1"
+    if [[ -n "${SLURM_JOB_NODELIST:-}" ]] && command -v scontrol >/dev/null 2>&1; then
+        scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n "$nodes" | paste -sd, -
+    fi
+}
+
 run_mpi() {
     local nodes="$1"
     local ranks="$2"
@@ -146,13 +153,54 @@ run_mpi() {
     export OMP_PROC_BIND="${OMP_PROC_BIND:-spread}"
 
     if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-        srun --mpi=pmix --cpu-bind="${SLURM_CPU_BIND_OPT:-cores}" -N "$nodes" -n "$ranks" --ntasks-per-node "${RANKS_PER_NODE:-1}" -c "$threads" "$@"
+        local node_list
+        node_list="$(slurm_node_list_for "$nodes")"
+        local node_args=()
+        if [[ -n "$node_list" ]]; then
+            node_args=(--nodelist "$node_list")
+        fi
+        srun --mpi=pmix "${node_args[@]}" --cpu-bind="${SLURM_CPU_BIND_OPT:-cores}" -N "$nodes" -n "$ranks" --ntasks-per-node "${RANKS_PER_NODE:-1}" -c "$threads" "$@"
     elif command -v mpirun >/dev/null 2>&1; then
         mpirun --oversubscribe -n "$ranks" "$@"
     else
         log "mpirun non trovato: impossibile eseguire benchmark MPI fuori da SLURM"
         return 127
     fi
+}
+
+stage_mpi_input() {
+    local src="$1"
+    local nodes="$2"
+
+    if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+        printf '%s\n' "$src"
+        return 0
+    fi
+
+    local stage_dir="$TMP_BASE/mpi_input"
+    local dst="$stage_dir/$(basename "$src")"
+
+    log "Stage MPI input su storage locale: nodes=$nodes src=$src dst=$dst"
+    local node_list
+    node_list="$(slurm_node_list_for "$nodes")"
+    local node_args=()
+    if [[ -n "$node_list" ]]; then
+        node_args=(--nodelist "$node_list")
+    fi
+
+    srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
+        bash -c '
+            set -Eeuo pipefail
+            stage_dir="$1"
+            dst="$2"
+            src="$3"
+            mkdir -p "$stage_dir"
+            if [[ ! -s "$dst" || "$src" -nt "$dst" ]]; then
+                cp -f "$src" "$dst"
+            fi
+        ' _ "$stage_dir" "$dst" "$src"
+
+    printf '%s\n' "$dst"
 }
 
 case_name() {
@@ -248,6 +296,15 @@ write_csv_header() {
     local file="$1"
     local header="$2"
     if [[ "${APPEND_RESULTS:-0}" == "1" && -s "$file" ]]; then
+        local existing_header
+        existing_header="$(head -n 1 "$file")"
+        if [[ "$existing_header" != "$header" ]]; then
+            log "Header CSV incompatibile in $file"
+            log "Atteso   : $header"
+            log "Trovato  : $existing_header"
+            log "Rimuovi il CSV o usa un RESULTS_DIR nuovo prima di appendere risultati."
+            return 2
+        fi
         return
     else
         printf '%s\n' "$header" >"$file"

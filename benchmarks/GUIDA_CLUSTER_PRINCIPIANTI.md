@@ -176,6 +176,8 @@ ls -lh benchmark_results/omp_mediumPayload8M*.log benchmark_results/omp_largePay
 ## 8. MPI strong scaling
 
 Dataset fisso, nodi crescenti. Serve per le curve strong scaling.
+Prima di ogni run MPI lo script copia l'input su `/tmp` locale dei nodi usati:
+questa fase non entra nei tempi del sorter e serve a non misurare NFS.
 
 ```bash
 cd ~/spmProject
@@ -203,6 +205,8 @@ Nel report collega questa parte ad Amdahl: merge, I/O e comunicazione limitano l
 ## 9. MPI weak scaling
 
 Il lavoro cresce con i nodi: `6.25M` record per nodo.
+Anche per weak scaling l'input viene copiato su `/tmp` locale prima della
+misura, quindi le curve riflettono meglio calcolo, I/O locale e comunicazione MPI.
 
 ```bash
 cd ~/spmProject

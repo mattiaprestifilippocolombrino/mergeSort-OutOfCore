@@ -47,6 +47,7 @@ for weak_spec in $WEAK_CASES; do
         records=$((records_per_node * nodes))
         input="$(ensure_dataset "$case_name_weak" "$records" "$payload")"
         ranks=$((nodes * RANKS_PER_NODE))
+        mpi_input="$(stage_mpi_input "$input" "$nodes")"
 
         for threads in $MPI_THREAD_LIST; do
             total_cores=$((ranks * threads))
@@ -57,7 +58,7 @@ for weak_spec in $WEAK_CASES; do
 
                 log "MPI weak case=$case_name_weak nodes=$nodes records=$records ranks=$ranks threads/rank=$threads trial=$trial"
                 if ! run_and_capture_sort "$log_file" \
-                    run_mpi "$nodes" "$ranks" "$threads" "$BUILD_DIR/mpi_sort" "$input" "$output" \
+                    run_mpi "$nodes" "$ranks" "$threads" "$BUILD_DIR/mpi_sort" "$mpi_input" "$output" \
                         --chunk-mb "$CHUNK_MB" \
                         --threads "$threads" \
                         --tmp-dir "$TMP_BASE" \

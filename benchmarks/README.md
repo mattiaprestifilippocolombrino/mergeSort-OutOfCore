@@ -97,6 +97,11 @@ Thread per processo:
 1 4 16
 ```
 
+Il dataset viene generato una volta in `benchmark_data` e poi copiato
+automaticamente in `TMP_BASE/mpi_input` sui nodi usati dalla run MPI. La copia
+non entra nei tempi del sorter: serve solo a evitare che ogni rank legga la
+propria stripe da NFS durante la misura.
+
 ### MPI weak scaling
 
 Record per nodo:
@@ -165,4 +170,5 @@ Totale
 - OpenMP e FastFlow sono in job separati, cosi' un problema FastFlow non rovina le misure OpenMP.
 - Se `RUN_FF=1` ma `ff_sort` non e' stato compilato, lo script fallisce subito invece di saltare FastFlow in silenzio.
 - Strong e weak scaling MPI sono separati per mantenere i job leggibili.
+- Nelle run MPI lo staging dell'input su `/tmp` locale evita che NFS falsi le curve.
 - `node09` non viene usato: gli script Slurm usano `node01-node08`, cioe' i nodi omogenei.

@@ -28,6 +28,7 @@ TMP_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 RUN_DIR="$TMP_BASE/spm_sort_${SLURM_JOB_ID:-manual}"
 
 INPUT="$RUN_DIR/input.bin"
+MPI_INPUT="$RUN_DIR/input_mpi.bin"
 OUT_OMP="$RUN_DIR/output_omp.bin"
 OUT_FF="$RUN_DIR/output_ff.bin"
 OUT_MPI="$RUN_DIR/output_mpi.bin"
@@ -101,13 +102,22 @@ else
 fi
 
 echo "=== MPI + OpenMP version ==="
+if [[ "${SLURM_JOB_NUM_NODES:-1}" -gt 1 && -n "${SLURM_JOB_ID:-}" && "$(command -v sbcast || true)" ]]; then
+    echo "Broadcast input su /tmp locale dei nodi MPI..."
+    srun -N "${SLURM_JOB_NUM_NODES:-2}" -n "${SLURM_JOB_NUM_NODES:-2}" --ntasks-per-node=1 \
+        mkdir -p "$RUN_DIR"
+    sbcast -f "$INPUT" "$MPI_INPUT"
+else
+    MPI_INPUT="$INPUT"
+fi
+
 /usr/bin/time -p srun --mpi=pmix -N "${SLURM_JOB_NUM_NODES:-2}" -n "$MPI_RANKS" -c "$THREADS" \
-    "$BUILD_DIR/mpi_sort" "$INPUT" "$OUT_MPI" \
+    "$BUILD_DIR/mpi_sort" "$MPI_INPUT" "$OUT_MPI" \
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
     --tmp-dir "$RUN_DIR"
 
-"$BUILD_DIR/verify" "$INPUT" "$OUT_MPI"
+"$BUILD_DIR/verify" "$MPI_INPUT" "$OUT_MPI"
 rm -f "$OUT_MPI"
 echo
 
