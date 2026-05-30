@@ -17,7 +17,14 @@ if [[ ! -x "$BUILD_DIR/mpi_sort" ]]; then
 fi
 
 write_csv_header "$CSV" \
-    "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
+    "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,local_merge_impl,generated_runs,sort_s,merge_s,total_s,verified,log_file"
+
+mpi_local_merge_impl="mpi_local_flat"
+mpi_local_merge_args=()
+if [[ "${MPI_LEGACY_LOCAL_MERGE:-0}" == "1" ]]; then
+    mpi_local_merge_impl="mpi_local_legacy"
+    mpi_local_merge_args+=(--legacy-local-merge)
+fi
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
 case_count="$(wc -w <<<"$WEAK_CASES")"
@@ -54,7 +61,8 @@ for weak_spec in $WEAK_CASES; do
                         --chunk-mb "$CHUNK_MB" \
                         --threads "$threads" \
                         --tmp-dir "$TMP_BASE" \
-                        --merge-fan "$MERGE_FAN"; then
+                        --merge-fan "$MERGE_FAN" \
+                        "${mpi_local_merge_args[@]}"; then
                     log "MPI weak fallito: case=$case_name_weak nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial. Vedi $log_file"
                     rm -f "$output"
                     continue
@@ -75,10 +83,10 @@ for weak_spec in $WEAK_CASES; do
                 merge_s="$(extract_seconds "Fase 2" <"$log_file")"
                 total_s="$(extract_seconds "Totale" <"$log_file")"
 
-                printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+                printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
                     "mpi_weak" "$case_name_weak" "$trial" "$records" "$payload" \
                     "$nodes" "$ranks" "$RANKS_PER_NODE" "$threads" "$total_cores" \
-                    "$records_per_node" "$CHUNK_MB" "$MERGE_FAN" "$generated_runs" \
+                    "$records_per_node" "$CHUNK_MB" "$MERGE_FAN" "$mpi_local_merge_impl" "$generated_runs" \
                     "$sort_s" "$merge_s" "$total_s" "$VERIFY" "$log_file" >>"$CSV"
             done
         done

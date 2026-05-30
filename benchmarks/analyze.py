@@ -88,6 +88,7 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
     for row in rows:
         key = (
             row["impl"],
+            row.get("merge_impl", ""),
             row["case"],
             row.get("chunk_mb", ""),
             row.get("merge_fan", ""),
@@ -100,6 +101,7 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
     for row in rows:
         key = (
             row["impl"],
+            row.get("merge_impl", ""),
             row["case"],
             row.get("chunk_mb", ""),
             row.get("merge_fan", ""),
@@ -120,9 +122,14 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
 
 
 def add_strong_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str, str], tuple[float, int]] = {}
+    baselines: dict[tuple[str, str, str, str], tuple[float, int]] = {}
     for row in rows:
-        key = (row["case"], row["ranks_per_node"], row["threads_per_rank"])
+        key = (
+            row["case"],
+            row.get("local_merge_impl", ""),
+            row["ranks_per_node"],
+            row["threads_per_rank"],
+        )
         nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
         if not math.isfinite(time) or nodes <= 0:
@@ -132,7 +139,14 @@ def add_strong_metrics(rows: list[dict[str, str]]) -> None:
             baselines[key] = (time, nodes)
 
     for row in rows:
-        baseline = baselines.get((row["case"], row["ranks_per_node"], row["threads_per_rank"]))
+        baseline = baselines.get(
+            (
+                row["case"],
+                row.get("local_merge_impl", ""),
+                row["ranks_per_node"],
+                row["threads_per_rank"],
+            )
+        )
         nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
         if baseline and time > 0 and nodes > 0:
@@ -149,9 +163,14 @@ def add_strong_metrics(rows: list[dict[str, str]]) -> None:
 
 
 def add_weak_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str, str], tuple[float, int]] = {}
+    baselines: dict[tuple[str, str, str, str], tuple[float, int]] = {}
     for row in rows:
-        key = (row["case"], row["ranks_per_node"], row["threads_per_rank"])
+        key = (
+            row["case"],
+            row.get("local_merge_impl", ""),
+            row["ranks_per_node"],
+            row["threads_per_rank"],
+        )
         nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
         if not math.isfinite(time) or nodes <= 0:
@@ -161,7 +180,14 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
             baselines[key] = (time, nodes)
 
     for row in rows:
-        baseline = baselines.get((row["case"], row["ranks_per_node"], row["threads_per_rank"]))
+        baseline = baselines.get(
+            (
+                row["case"],
+                row.get("local_merge_impl", ""),
+                row["ranks_per_node"],
+                row["threads_per_rank"],
+            )
+        )
         time = as_float(row, "avg_total_s")
         if baseline and time > 0:
             base_time, base_nodes = baseline
@@ -184,16 +210,17 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
     def safe(name: str) -> str:
         return "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
 
-    for (impl, case), group in grouped(single, ["impl", "case"]).items():
+    for (impl, merge_impl, case), group in grouped(single, ["impl", "merge_impl", "case"]).items():
         group = sorted(group, key=lambda r: as_int(r, "threads"))
         xs = [as_int(r, "threads") for r in group]
         speedup = [as_float(r, "speedup") for r in group]
         efficiency = [as_float(r, "efficiency") for r in group]
         if not xs:
             continue
+        title = f"{impl} {merge_impl} {case}".replace("  ", " ")
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         axes[0].plot(xs, speedup, marker="o")
-        axes[0].set_title(f"{impl} {case} speedup")
+        axes[0].set_title(f"{title} speedup")
         axes[0].set_xlabel("threads/workers")
         axes[0].set_ylabel("speedup")
         axes[0].grid(True, alpha=0.3)
@@ -203,10 +230,10 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
         fig.tight_layout()
-        fig.savefig(plot_dir / f"single_{safe(impl)}_{safe(case)}.png")
+        fig.savefig(plot_dir / f"single_{safe(impl)}_{safe(merge_impl)}_{safe(case)}.png")
         plt.close(fig)
 
-    for (case, threads), group in grouped(strong, ["case", "threads_per_rank"]).items():
+    for (case, local_merge_impl, threads), group in grouped(strong, ["case", "local_merge_impl", "threads_per_rank"]).items():
         group = sorted(group, key=lambda r: as_int(r, "nodes"))
         xs = [as_int(r, "nodes") for r in group]
         speedup = [as_float(r, "strong_speedup") for r in group]
@@ -215,20 +242,20 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         axes[0].plot(xs, speedup, marker="o")
-        axes[0].set_title(f"strong speedup {case}, t/rank={threads}")
+        axes[0].set_title(f"strong speedup {case}, {local_merge_impl}, t/rank={threads}")
         axes[0].set_xlabel("nodes")
         axes[0].set_ylabel("speedup")
         axes[0].grid(True, alpha=0.3)
         axes[1].plot(xs, efficiency, marker="o")
-        axes[1].set_title(f"strong efficiency {case}, t/rank={threads}")
+        axes[1].set_title(f"strong efficiency {case}, {local_merge_impl}, t/rank={threads}")
         axes[1].set_xlabel("nodes")
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
         fig.tight_layout()
-        fig.savefig(plot_dir / f"strong_{safe(case)}_t{safe(threads)}.png")
+        fig.savefig(plot_dir / f"strong_{safe(case)}_{safe(local_merge_impl)}_t{safe(threads)}.png")
         plt.close(fig)
 
-    for (case, threads), group in grouped(weak, ["case", "threads_per_rank"]).items():
+    for (case, local_merge_impl, threads), group in grouped(weak, ["case", "local_merge_impl", "threads_per_rank"]).items():
         group = sorted(group, key=lambda r: as_int(r, "nodes"))
         xs = [as_int(r, "nodes") for r in group]
         time = [as_float(r, "avg_total_s") for r in group]
@@ -237,17 +264,17 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         axes[0].plot(xs, time, marker="o")
-        axes[0].set_title(f"weak time {case}, t/rank={threads}")
+        axes[0].set_title(f"weak time {case}, {local_merge_impl}, t/rank={threads}")
         axes[0].set_xlabel("nodes")
         axes[0].set_ylabel("seconds")
         axes[0].grid(True, alpha=0.3)
         axes[1].plot(xs, efficiency, marker="o")
-        axes[1].set_title(f"weak efficiency {case}, t/rank={threads}")
+        axes[1].set_title(f"weak efficiency {case}, {local_merge_impl}, t/rank={threads}")
         axes[1].set_xlabel("nodes")
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
         fig.tight_layout()
-        fig.savefig(plot_dir / f"weak_{safe(case)}_t{safe(threads)}.png")
+        fig.savefig(plot_dir / f"weak_{safe(case)}_{safe(local_merge_impl)}_t{safe(threads)}.png")
         plt.close(fig)
 
 
@@ -262,7 +289,7 @@ def main() -> None:
 
     single = summarize(
         read_csv(results_dir / "single_node_raw.csv"),
-        ["impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
+        ["impl", "merge_impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
         drop_worst,
     )
     add_single_node_metrics(single)
@@ -270,7 +297,7 @@ def main() -> None:
 
     tuning = summarize(
         read_csv(results_dir / "single_node_tuning_raw.csv"),
-        ["impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
+        ["impl", "merge_impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
         drop_worst,
     )
     add_single_node_metrics(tuning)
@@ -289,6 +316,7 @@ def main() -> None:
             "total_cores",
             "chunk_mb",
             "merge_fan",
+            "local_merge_impl",
             "generated_runs",
         ],
         drop_worst,
@@ -310,6 +338,7 @@ def main() -> None:
             "records_per_node",
             "chunk_mb",
             "merge_fan",
+            "local_merge_impl",
             "generated_runs",
         ],
         drop_worst,

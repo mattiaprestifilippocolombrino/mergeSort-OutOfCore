@@ -5,11 +5,12 @@ Questa e' la sequenza finale consigliata. Non rifare il tuning lungo: dai dati r
 ```bash
 CHUNK_MB=64
 MERGE_FAN=8
+PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 ```
 
-Il tuning completo ha mostrato che `CHUNK_MB=64, MERGE_FAN=8` e' la scelta migliore tra quelle provate a 32 thread.
+Con il merge flat nuovo `MERGE_FAN` resta solo per compatibilita' e per eventuali run legacy: nella campagna finale la variabile da tenere sotto controllo e' `CHUNK_MB`.
 
 ## 0. Preparazione
 
@@ -34,7 +35,7 @@ efficiency = speedup / threads
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -56,7 +57,7 @@ Eseguilo separato da OpenMP. Se FastFlow fallisce o va in timeout, conserva i lo
 RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
@@ -79,12 +80,12 @@ Serve a soddisfare la richiesta di variare `N` e payload.
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="payload16:20000000:16 payload512:2000000:512 fewBig2048:500000:2048" \
+BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 APPEND_RESULTS=1 \
-sbatch --time=00:15:00 benchmarks/slurm_single_node.sbatch
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Da guardare:
@@ -103,7 +104,7 @@ RUN_STRONG=1 RUN_WEAK=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 STRONG_NODES="1 2 4 8" RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -126,7 +127,7 @@ RUN_STRONG=0 RUN_WEAK=1 \
 WEAK_CASES="weakSmall6250k:6250000:64" \
 STRONG_NODES="1 2 4 8" RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -146,7 +147,7 @@ Run piccola con verifica attiva, separata dalle misure.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -173,8 +174,8 @@ Il tuning e' opzionale. Se vuoi rifarlo:
 ```bash
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 32" \
-CHUNK_MB_LIST="64 256" \
-MERGE_FAN_LIST="8 16" \
+CHUNK_MB_LIST="32 64 128" \
+PAYLOAD_MAX_BUILD=4096 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:10:00 benchmarks/slurm_tune_single_node.sbatch
 ```

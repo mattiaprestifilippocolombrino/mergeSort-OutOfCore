@@ -7,11 +7,12 @@ Useremo sempre:
 ```bash
 CHUNK_MB=64
 MERGE_FAN=8
+PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 ```
 
-Questi valori vengono dal tuning gia' fatto su `manySmall50M`.
+`MERGE_FAN` resta per compatibilita' e per le run legacy; con il merge flat nuovo non influenza la campagna finale.
 
 ## 1. Entrare nel cluster
 
@@ -77,7 +78,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -102,7 +103,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -130,7 +131,7 @@ cd ~/spmProject
 RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
@@ -156,12 +157,12 @@ Questo job varia `N` e payload.
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="payload16:20000000:16 payload512:2000000:512 fewBig2048:500000:2048" \
+BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 APPEND_RESULTS=1 \
-sbatch --time=00:15:00 benchmarks/slurm_single_node.sbatch
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
 File da guardare:
@@ -169,7 +170,7 @@ File da guardare:
 ```bash
 tail -n 120 slurm_single_*.err
 cat benchmark_results/single_node_summary.csv
-ls -lh benchmark_results/omp_payload*.log benchmark_results/omp_fewBig2048*.log
+ls -lh benchmark_results/omp_mediumPayload8M*.log benchmark_results/omp_largePayload2M*.log
 ```
 
 ## 8. MPI strong scaling
@@ -183,7 +184,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -210,7 +211,7 @@ WEAK_CASES="weakSmall6250k:6250000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -237,7 +238,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```

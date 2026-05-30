@@ -14,11 +14,8 @@ set -Eeuo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-if [[ -d "/scratch" && -w "/scratch" ]]; then
-    RUN_ROOT="/scratch/$USER/spmRun"
-else
-    RUN_ROOT="/tmp/$USER/spmRun"
-fi
+LOCAL_TMP="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
+RUN_ROOT="$LOCAL_TMP/$USER/spmRun"
 export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
 export RESULTS_DIR="$PROJECT_DIR/benchmark_results"
 export DATA_DIR="$RUN_DIR/data"
@@ -39,6 +36,7 @@ fi
 
 export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
 export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
+export PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 export CHUNK_MB="${CHUNK_MB:-64}"
 export MERGE_FAN="${MERGE_FAN:-8}"
 export TRIALS="${TRIALS:-1}"

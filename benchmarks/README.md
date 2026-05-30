@@ -4,16 +4,11 @@ Questa cartella contiene gli script per misurare speedup, efficiency, strong sca
 
 La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
-## Perche' ora c'e' un tuning
+## Perche' il tuning ora e' piccolo
 
-I risultati su `manySmall50M` mostrano che OpenMP parallelizza bene la fase di sort, ma il merge resta il collo di bottiglia:
+La versione nuova usa il merge flat basato su `mergePass()`: ogni thread fonde un gruppo di run e il thread principale fa il merge finale degli intermedi. In questa versione `MERGE_FAN` non e' piu' una variabile prestazionale, resta solo per confrontare la modalita' legacy.
 
-```text
-threads 1  -> totale 34.5s, merge 19.8s
-threads 32 -> totale 19.5s, merge 14.8s
-```
-
-Per questo la campagna finale usa `CHUNK_MB=64, MERGE_FAN=8`, scelti dal tuning su `manySmall50M`. Il tuning si puo' rieseguire con:
+Il tuning finale quindi prova solo poche dimensioni di chunk su `manySmall50M`:
 
 ```text
 slurm_tune_single_node.sbatch
@@ -26,15 +21,14 @@ benchmark_results/single_node_tuning_raw.csv
 benchmark_results/single_node_tuning_summary.csv
 ```
 
-Il tuning prova poche combinazioni:
+Configurazione:
 
 ```bash
-CHUNK_MB_LIST="64 256"
-MERGE_FAN_LIST="8 16"
+CHUNK_MB_LIST="32 64 128"
 THREAD_LIST="1 32"
 ```
 
-Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`. Il tuning e' opzionale per la campagna finale gia' impostata.
+Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`. Il default resta `CHUNK_MB=64`, che genera abbastanza run su file grandi senza creare troppi file temporanei.
 
 ## Campagna finale
 
@@ -66,12 +60,11 @@ efficiency = speedup / p
 
 ### Payload distribution
 
-Job separata:
+La campagna principale `manySmall50M:50000000:64` copre gia' il caso "grande N, payload piccolo". Per completare la richiesta, si aggiungono due casi con meno record e payload piu' grande, mantenendo una dimensione file dello stesso ordine di grandezza:
 
 ```bash
-payload16:20000000:16
-payload512:2000000:512
-fewBig2048:500000:2048
+mediumPayload8M:8000000:512
+largePayload2M:2000000:2048
 ```
 
 Thread ridotti:
@@ -123,7 +116,7 @@ Quindi:
 
 ## Script principali
 
-- `slurm_tune_single_node.sbatch`: tuning `CHUNK_MB`/`MERGE_FAN`;
+- `slurm_tune_single_node.sbatch`: tuning breve di `CHUNK_MB`;
 - `slurm_single_node.sbatch`: single-node OpenMP/FastFlow;
 - `slurm_mpi_scaling.sbatch`: MPI strong oppure weak;
 - `tune_single_node.sh`: loop di tuning;
@@ -137,12 +130,13 @@ Quindi:
 ```bash
 CHUNK_MB=64
 MERGE_FAN=8
+PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 RUN_TIMEOUT_SECONDS=180
 ```
 
-`VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
+`MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
 
 ## Output
 
@@ -167,7 +161,7 @@ Totale
 ## Note metodologiche
 
 - `50M` sostituisce `20M` come caso principale per evitare tempi troppo corti.
-- Prima si fa tuning OpenMP, poi si usa la stessa configurazione per la campagna finale.
+- Prima si fa un tuning breve di `CHUNK_MB`, poi si usa la stessa configurazione per la campagna finale.
 - OpenMP e FastFlow sono in job separati, cosi' un problema FastFlow non rovina le misure OpenMP.
 - Se `RUN_FF=1` ma `ff_sort` non e' stato compilato, lo script fallisce subito invece di saltare FastFlow in silenzio.
 - Strong e weak scaling MPI sono separati per mantenere i job leggibili.

@@ -16,7 +16,7 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 write_csv_header "$CSV" \
-    "suite,impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
+    "suite,impl,merge_impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
 impl_count=0
 if [[ "${RUN_OMP:-1}" == "1" ]]; then
@@ -47,6 +47,7 @@ run_impl() {
     local payload="$5"
     local threads="$6"
     local trial="$7"
+    local merge_impl
 
     local output="$RUN_ROOT/${impl}_${case}_t${threads}_i${trial}.bin"
     local log_suffix="${LOG_TAG:-}"
@@ -56,22 +57,40 @@ run_impl() {
     local log_file="$RESULTS_DIR/${impl}_${case}_t${threads}_i${trial}${log_suffix}.log"
 
     if [[ "$impl" == "omp" ]]; then
+        local omp_merge_args=()
+        if [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
+            omp_merge_args+=(--legacy-merge)
+            merge_impl="omp_legacy"
+        else
+            merge_impl="omp_flat"
+        fi
+
         if ! run_and_capture_sort "$log_file" \
             run_single_benchmark "$threads" "$BUILD_DIR/omp_sort" "$input" "$output" \
                 --chunk-mb "$CHUNK_MB" \
                 --threads "$threads" \
                 --tmp-dir "$RUN_ROOT" \
-                --merge-fan "$MERGE_FAN"; then
+                --merge-fan "$MERGE_FAN" \
+                "${omp_merge_args[@]}"; then
             rm -f "$output"
             return 1
         fi
     else
+        local ff_merge_args=()
+        if [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
+            ff_merge_args+=(--legacy-merge)
+            merge_impl="ff_legacy"
+        else
+            merge_impl="ff_flat"
+        fi
+
         if ! run_and_capture_sort "$log_file" \
             run_single_benchmark "$threads" "$BUILD_DIR/ff_sort" "$input" "$output" \
                 --chunk-mb "$CHUNK_MB" \
                 --workers "$threads" \
                 --tmp-dir "$RUN_ROOT" \
-                --merge-fan "$MERGE_FAN"; then
+                --merge-fan "$MERGE_FAN" \
+                "${ff_merge_args[@]}"; then
             rm -f "$output"
             return 1
         fi
@@ -89,8 +108,8 @@ run_impl() {
     merge_s="$(extract_seconds "Fase 2" <"$log_file")"
     total_s="$(extract_seconds "Totale" <"$log_file")"
 
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
-        "single_node" "$impl" "$case" "$trial" "$records" "$payload" \
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        "single_node" "$impl" "$merge_impl" "$case" "$trial" "$records" "$payload" \
         "$threads" "$CHUNK_MB" "$MERGE_FAN" "$generated_runs" "$sort_s" "$merge_s" "$total_s" \
         "$VERIFY" "$log_file" >>"$CSV"
 }

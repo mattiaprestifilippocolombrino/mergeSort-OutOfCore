@@ -8,9 +8,9 @@ PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
 RESULTS_DIR="${RESULTS_DIR:-$PROJECT_DIR/benchmark_results}"
 DATA_DIR="${DATA_DIR:-$PROJECT_DIR/benchmark_data}"
-TMP_BASE="${TMP_BASE:-${TMPDIR:-/tmp}}"
+TMP_BASE="${TMP_BASE:-${SLURM_TMPDIR:-${TMPDIR:-/tmp}}}"
 
-PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-1048576}"
+PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 CHUNK_MB="${CHUNK_MB:-64}"
 MERGE_FAN="${MERGE_FAN:-8}"
 TRIALS="${TRIALS:-1}"
@@ -141,8 +141,12 @@ run_mpi() {
     local threads="$3"
     shift 3
 
+    export OMP_NUM_THREADS="$threads"
+    export OMP_PLACES="${OMP_PLACES:-cores}"
+    export OMP_PROC_BIND="${OMP_PROC_BIND:-spread}"
+
     if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-        srun --mpi=pmix --cpu-bind=none -N "$nodes" -n "$ranks" --ntasks-per-node "${RANKS_PER_NODE:-1}" -c "$threads" "$@"
+        srun --mpi=pmix --cpu-bind="${SLURM_CPU_BIND_OPT:-cores}" -N "$nodes" -n "$ranks" --ntasks-per-node "${RANKS_PER_NODE:-1}" -c "$threads" "$@"
     elif command -v mpirun >/dev/null 2>&1; then
         mpirun --oversubscribe -n "$ranks" "$@"
     else

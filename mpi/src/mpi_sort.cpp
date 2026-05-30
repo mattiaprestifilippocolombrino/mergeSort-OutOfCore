@@ -20,7 +20,9 @@
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run locale (default: 256 MB)
 //   --threads   N     Numero di thread OpenMP per rank (default: max hw)
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan N     Fan-in massimo del K-way merge locale (default: 64)
+//   --merge-fan N     Fan-in massimo del K-way merge locale legacy (default: 64)
+//   --legacy-local-merge
+//                     Usa il merge locale multi-pass storico dentro ogni rank
 //
 // =============================================================================
 // ARCHITETTURA DISTRIBUITA
@@ -76,9 +78,11 @@
 // Moduli del progetto:
 //   chunk_sorter.hpp  -> spezza una stripe in chunk, li ordina e produce run.
 //   kway_merger.hpp   -> fonde run gia' ordinate in modo out-of-core.
+//   omp_kway_merger.hpp -> merge locale flat intra-rank basato su mergePass().
 //   temp_dir.hpp      -> crea e pulisce directory temporanee RAII per rank.
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
+#include "omp_kway_merger.hpp"
 #include "temp_dir.hpp"
 
 // Librerie di parallelismo e sistema:
@@ -113,7 +117,9 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     MB per chunk locale (default: 256)\n"
               << "  --threads   N     Thread OpenMP per rank (default: max hw)\n"
               << "  --tmp-dir   PATH  Directory temporanea (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in K-way merge locale (default: 64)\n";
+              << "  --merge-fan N     Fan-in K-way merge locale legacy (default: 64)\n"
+              << "  --legacy-local-merge\n"
+              << "                    Usa il merge locale multi-pass storico dentro ogni rank\n";
     std::exit(1);
 }
 
@@ -298,7 +304,15 @@ static void mpiRecvFile(
     int64_t sz;
     MPI_Recv(&sz, 1, MPI_INT64_T, src, tagSize, comm, MPI_STATUS_IGNORE);
 
-    if (sz <= 0) return; // Se la dimensione è <= 0, il file è vuoto: si esce
+    if (sz <= 0) {
+        // Se la dimensione è <= 0, creo comunque un file vuoto.
+        // Il merge successivo riceve sempre un path valido, anche quando
+        // un rank aveva una stripe vuota.
+        FILE* empty = std::fopen(path.c_str(), "wb");
+        if (!empty) throw std::runtime_error("mpiRecvFile: impossibile creare " + path);
+        std::fclose(empty);
+        return;
+    }
 
     // Apre il file in scrittura binaria per riversarci i dati in arrivo
     FILE* f = std::fopen(path.c_str(), "wb");
@@ -396,7 +410,8 @@ int main(
     std::string tmpDir     = "/tmp";  // Directory base per i file temporanei
     size_t      chunkMb    = 256;     // Dimensione massima in MB per ogni chunk da ordinare localmente
     int         nThreads   = omp_get_max_threads(); // Numero di thread OpenMP da usare
-    int         mergeFan   = 64;      // Numero massimo K di passate per i merge interni di ogni rank
+    int         mergeFan   = 64;      // Numero massimo K di passate per i merge interni legacy di ogni rank
+    bool        legacyLocalMerge = false; // Se true usa il merge locale multi-pass storico dentro ogni rank
 
     // Ciclo di parsing dei flag opzionali e assegnamento
     for (int i = 3; i < argc; ++i) {
@@ -405,6 +420,7 @@ int main(
         else if (a == "--threads"   && i + 1 < argc) nThreads = std::stoi(argv[++i]);
         else if (a == "--tmp-dir"   && i + 1 < argc) tmpDir   = argv[++i];
         else if (a == "--merge-fan" && i + 1 < argc) mergeFan = std::stoi(argv[++i]);
+        else if (a == "--legacy-local-merge") legacyLocalMerge = true;
         else {
             if (rank == 0) usage(argv[0]);
             MPI_Finalize();
@@ -432,7 +448,8 @@ int main(
                   << "  ranks    : " << numProcs << "\n"
                   << "  threads  : " << nThreads << "\n"
                   << "  chunk    : " << chunkMb  << " MB\n"
-                  << "  fan-in   : " << mergeFan << "\n"
+                  << "  local merge : " << (legacyLocalMerge ? "mpi-local-legacy" : "mpi-local-flat") << "\n"
+                  << "  fan-in   : " << (legacyLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
 
@@ -487,10 +504,27 @@ int main(
                 throw std::runtime_error("mpi_sort: rename local_sorted fallito");
 
         } else {  //Altrimenti, se ci sono più chunk ordinati
-            // Esegue un k-way merge finale sulla serie di file chunk in modo da compattare il tutto.
-            // Si richiede esplicitamente /*parallelMerge=*/false in quanto fare un merge multithread in contemporanea con altri rank ucciderebbe l'IO. Siamo su macchine diverse, quindi si puo abilitare.
-            kwayMerge(runPaths, localSorted, mergeFan,
-                      /*deleteRuns=*/true, /*parallelMerge=*/false);
+            if (legacyLocalMerge) {
+                // Esegue un k-way merge finale sulla serie di file chunk in modo da compattare il tutto.
+                // Si richiede esplicitamente /*parallelMerge=*/false in quanto fare un merge multithread in contemporanea con altri rank ucciderebbe l'IO. Siamo su macchine diverse, quindi si puo abilitare.
+                kwayMerge(runPaths, localSorted, mergeFan,
+                          /*deleteRuns=*/true, /*parallelMerge=*/false);
+            } else {
+                /*
+                Merge locale flat dentro il rank.
+                Sul cluster usiamo un rank per nodo: i thread OpenMP del rank
+                possono quindi lavorare sui file temporanei locali del nodo
+                senza competere con altri rank sulla stessa macchina.
+                La funzione usa sempre mergePass():
+                1. divide le run locali in gruppi contigui, uno per thread;
+                2. ogni thread produce un intermedio ordinato;
+                3. il thread principale fonde gli intermedi finali.
+                In questo modo merge_fan non serve nella versione nuova.
+                */
+                ompKwayMerge(runPaths, localSorted,
+                             /*deleteRuns=*/true,
+                             /*parallelMerge=*/true);
+            }
         }
     }
 

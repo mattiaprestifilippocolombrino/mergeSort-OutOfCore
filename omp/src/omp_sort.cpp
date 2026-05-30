@@ -8,8 +8,9 @@
 //   --chunk-mb     N     Dimensione del blocco in RAM per ogni run (default: 256 MB)
 //   --threads      N     Numero di thread OpenMP (default: max hw)
 //   --tmp-dir      PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan    N     Fan-in massimo del K-way merge (default: 64)
-//   --no-par-merge       Disabilita merge parallelo tra gruppi (default: abilitato)
+//   --merge-fan    N     Fan-in massimo solo per --legacy-merge (default: 64)
+//   --legacy-merge       Usa il vecchio merge multi-pass a livelli
+//   --no-par-merge       Disabilita merge parallelo
 //   --keep-runs          Non eliminare i file di run dopo il merge (debug)
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,25 +25,22 @@
 //
 //   run_0.bin, run_1.bin, run_2.bin, ...  ← ognuno già ordinato
 //
-// FASE 2  —  omp_kway_merge()   [omp_kway_merger.hpp]
-//   K-way merge multi-pass con fan-in limitato a --merge-fan:
+// FASE 2  —  ompKwayMerge()   [omp_kway_merger.hpp]
+//   K-way merge flat a due livelli:
 //
-//   Se le run sono ≤ merge-fan: un solo passaggio di merge.
-//   Se le run sono > merge-fan: più passaggi a gruppi (ogni passata
-//   riduce il numero di run di un fattore merge-fan) finché rimane
-//   una sola run = file di output finale.
+//   1. Le run vengono divise tra i thread OpenMP.
+//   2. Ogni thread fonde il proprio blocco con mergePass().
+//   3. Il thread principale fonde gli intermedi finali con mergePass().
 //
-//   Questo garantisce che il numero di file aperti contemporaneamente
-//   sia sempre ≤ merge-fan, controllando il consumo di RAM e file
-//   descriptors anche con file di input enormi.
+//   La versione legacy multi-pass resta disponibile con --legacy-merge.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // PARALLELISMO
 // ─────────────────────────────────────────────────────────────────────────────
 //   Fase 1: ogni chunk è ordinato in un task OMP → parallelismo CPU.
-//   Fase 2: i gruppi di merge indipendenti all'interno di ogni passata
-//           sono eseguiti come task OMP in parallelo (I/O-bound, utile
-//           se il disco ha bandwidth sufficiente o se usiamo più spindle).
+//   Fase 2: i thread fondono blocchi disgiunti di run; poi il main thread
+//           esegue il merge finale degli intermedi. Il numero di passate su
+//           disco e' ridotto al minimo, utile su /tmp locale dei nodi HPC.
 //
 // =============================================================================
 
@@ -68,8 +66,9 @@ static void usage(const char* prog) {
               << "  --chunk-mb     N     Dimensione chunk in MB      (default: 256)\n"
               << "  --threads      N     Thread OpenMP               (default: max hw)\n"
               << "  --tmp-dir      PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan    N     Fan-in massimo K-way merge  (default: 64)\n"
-              << "  --no-par-merge       Disabilita merge parallelo tra gruppi\n"
+              << "  --merge-fan    N     Fan-in solo legacy merge    (default: 64)\n"
+              << "  --legacy-merge       Usa il vecchio merge multi-pass a livelli\n"
+              << "  --no-par-merge       Disabilita merge parallelo\n"
               << "  --keep-runs          Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -80,8 +79,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Parametri di default:
-    // chunk grande abbastanza da sfruttare std::sort su blocchi corposi,
-    // merge_fan alto per ridurre le passate su disco, ma ancora leggero in RAM.
+    // chunk grande abbastanza da sfruttare std::sort su blocchi corposi.
+    // Il nuovo merge OpenMP non usa merge_fan: divide le run tra i thread e
+    // fa una sola passata finale. mergeFan resta solo per --legacy-merge.
     std::string inputPath  = argv[1];
     std::string outputPath = argv[2];
     std::string tmpDir     = "/tmp";
@@ -90,6 +90,7 @@ int main(int argc, char* argv[]) {
     int         mergeFan   = 64;
     bool        keepRuns   = false;
     bool        parallelMerge   = true;
+    bool        legacyMerge     = false;
 
     // Parsing semplice e diretto delle opzioni.
     // Mantengo nomi e parametri uguali tra versioni OMP, FF e MPI: rende piu'
@@ -105,6 +106,8 @@ int main(int argc, char* argv[]) {
             tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
+        } else if (a == "--legacy-merge") {
+            legacyMerge = true;
         } else if (a == "--no-par-merge") {
             parallelMerge = false;
         } else if (a == "--keep-runs") {
@@ -133,7 +136,8 @@ int main(int argc, char* argv[]) {
               << "  output       : " << outputPath       << "\n"
               << "  chunk        : " << chunkMb          << " MB\n"
               << "  threads      : " << nThreads          << "\n"
-              << "  merge fan-in : " << mergeFan         << "\n"
+              << "  merge impl   : " << (legacyMerge ? "legacy multi-pass" : "flat two-stage") << "\n"
+              << "  merge fan-in : " << (legacyMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  merge paral. : " << (parallelMerge ? "si" : "no") << "\n"
               << "  tmp          : " << workTmp.str()    << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX       << " B\n\n";
@@ -157,13 +161,18 @@ int main(int argc, char* argv[]) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // FASE 2: K-way merge multi-pass → file di output
+    // FASE 2: K-way merge → file di output
     // ─────────────────────────────────────────────────────────────────────────
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
 
     // Il merge lavora solo su file ordinati: non carica mai tutte le run in RAM.
-    ompKwayMerge(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
-                   /*parallelMerge=*/parallelMerge);
+    if (legacyMerge) {
+        ompKwayMergeLegacy(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
+                           /*parallelMerge=*/parallelMerge);
+    } else {
+        ompKwayMerge(runs, outputPath, /*deleteRuns=*/!keepRuns,
+                     /*parallelMerge=*/parallelMerge);
+    }
 
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
 

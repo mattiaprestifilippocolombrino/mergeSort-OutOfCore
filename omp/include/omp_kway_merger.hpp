@@ -16,6 +16,29 @@ il modo in cui i gruppi vengono distribuiti ai thread.
 #include <stdexcept>
 #include <atomic>
 #include <algorithm>
+#include <exception>
+
+inline std::string ompMergeParentDir(const std::string& path)
+{
+    size_t slashPos = path.rfind('/');  // Cerca l'ultima occorrenza di '/' nel path della prima run.
+    if (slashPos != std::string::npos) {        // Se l'occorrenza viene trovata.
+        return path.substr(0, slashPos);    // Prende il path della directory temporanea, da inizio stringa all'ultimo slash.
+    }
+    return ".";                            // Altrimenti la directory temporanea è la directory corrente.
+}
+
+inline std::string ompFlatMergeTmpPath(const std::string& tmpDir, int workerId)
+{
+    return tmpDir + "/run_omp_flat_" + std::to_string(workerId) + ".bin";
+}
+
+inline std::vector<std::string> ompMergeGroup(
+    const std::vector<std::string>& paths,
+    size_t                          begin,
+    size_t                          end)
+{
+    return std::vector<std::string>(paths.begin() + begin, paths.begin() + end);
+}
 
 /*
 Orchestratore del merge multi-pass con parallelismo OpenMP task.
@@ -29,7 +52,7 @@ Parametri:
   delete_runs    - Se true, i file di input vengono rimossi dopo ogni passata.
   parallel_merge - Se true, i gruppi indipendenti vengono eseguiti come task OMP in parallelo.
 */
-inline void ompKwayMerge(
+inline void ompKwayMergeLegacy(
     const std::vector<std::string>& runPaths,   // Vettore di path delle run da fondere.
     const std::string&              outputPath, // Path del file di output finale.
     int                             mergeFan      = 64,   // Fan-in massimo.
@@ -38,7 +61,7 @@ inline void ompKwayMerge(
 {
     // Se non ci sono run, lancio un errore.
     if (runPaths.empty()) {
-        throw std::runtime_error("omp_kway_merge: nessuna run");
+        throw std::runtime_error("omp_kway_merge_legacy: nessuna run");
     }
 
     // Se il merge_fan è minore di 2, lo imposto a 2.
@@ -49,7 +72,7 @@ inline void ompKwayMerge(
     const bool verbose = mergeVerboseEnabled();
     if (verbose) {
         std::fprintf(stderr,
-                     "[merge] impl=omp initialRuns=%zu mergeFan=%d parallelMerge=%s\n",
+                     "[merge] impl=omp-legacy initialRuns=%zu mergeFan=%d parallelMerge=%s\n",
                      runPaths.size(), mergeFan, parallelMerge ? "yes" : "no");
     }
 
@@ -65,13 +88,7 @@ inline void ompKwayMerge(
 
     // Blocco che serve a ricavare la cartella in cui si trovano le run temporanee di input: "/tmp/runs/run_0.bin" -> "/tmp/runs"
     // partendo dal path della prima run.
-    std::string tmpDir;
-    size_t slashPos = runPaths[0].rfind('/');  // Cerca l'ultima occorrenza di '/' nel path della prima run.
-    if (slashPos != std::string::npos) {        // Se l'occorrenza viene trovata.
-        tmpDir = runPaths[0].substr(0, slashPos);    // Prende il path della directory temporanea, da inizio stringa all'ultimo slash.
-    } else {
-        tmpDir = ".";                            // Altrimenti la directory temporanea è la directory corrente.
-    }
+    std::string tmpDir = ompMergeParentDir(runPaths[0]);
 
     // Vettore che contiene le run ancora da fondere.
     // Ad ogni passata viene sostituito da next_level, cioe' dalle run prodotte.
@@ -110,6 +127,7 @@ inline void ompKwayMerge(
         if (parallelMerge && numGroups > 1) {
             // Si usa un flag atomico per sapere se un task di merge ha fallito.
             std::atomic<bool> mergeError{false};
+            std::exception_ptr firstError = nullptr;
 
             /*
             Si crea la regione parallela. Le variabili condivise sono il vettore delle run da fondere, 
@@ -120,7 +138,7 @@ inline void ompKwayMerge(
             */
             #pragma omp parallel default(none) \
                 shared(currentLevel, nextLevel, numGroups, mergeFan, \
-                       deleteRuns, pass, mergeError, R)
+                       deleteRuns, pass, mergeError, firstError, R)
             #pragma omp single
             {
                 // Creo un task per ogni gruppo di run da fondere in parallelo.
@@ -144,7 +162,7 @@ inline void ompKwayMerge(
                     //Lancio un task che esegue la merge pass. 
                     // Le variabili private del task sono group, out_path, del_src. Le variabili condivise sono merge_error.
                     #pragma omp task firstprivate(group, outPath, deleteSource) \
-                                     shared(mergeError) default(none)
+                                     shared(mergeError, firstError) default(none)
                     {
                         // Se non c'è stato nessun errore finora, provo ad eseguire la merge pass.
                         if (!mergeError.load(std::memory_order_relaxed)) {  
@@ -152,6 +170,12 @@ inline void ompKwayMerge(
                                 mergePass(group, outPath, deleteSource);   //Si chiama la funzione che fa il merge di un gruppo di run.
                             } catch (...) {
                                 mergeError.store(true, std::memory_order_relaxed);  //Se c'e' un errore, lo imposto. 
+                                #pragma omp critical(omp_merge_legacy_error)
+                                {
+                                    if (firstError == nullptr) {
+                                        firstError = std::current_exception();
+                                    }
+                                }
                             }
                         }
                     }
@@ -159,8 +183,8 @@ inline void ompKwayMerge(
             } // barriera implicita: tutti i task di questa passata sono finiti
 
             // Controllo se c'e' un errore.
-            if (mergeError.load()) {
-                throw std::runtime_error("omp_kway_merge: errore in un merge parallelo");
+            if (firstError != nullptr) {
+                std::rethrow_exception(firstError);
             }
 
         } else {           //Caso in cui non si ha merge parallelo, poichè si hanno pochi gruppi o parallelismo disabilitato.
@@ -180,13 +204,158 @@ inline void ompKwayMerge(
             }
         }
 
-        currentLevel = std::move(nextLevel);  //Sposto il vettore dei file di output intermedi creati in questa passata nel vettore delle run da fondere per la prossima passata. Finisce il ciclo e si passa all'iterazione successiva.
+        currentLevel = std::move(nextLevel);  //Sposto il vettore dei file di output intermedi creati dalla passata nel vettore delle run da fondere per la prossima passata. Finisce il ciclo e si passa all'iterazione successiva.
     }
 
     // Se current_level ha ancora 1 elemento e non e' gia' output_path, rinominarlo all'output finale.
     if (currentLevel.size() == 1 && currentLevel[0] != outputPath) {
         if (std::rename(currentLevel[0].c_str(), outputPath.c_str()) != 0) {
-            throw std::runtime_error("omp_kway_merge: rename finale fallito");
+            throw std::runtime_error("omp_kway_merge_legacy: rename finale fallito");
         }
     }
+}
+
+/*
+Orchestratore del merge flat con parallelismo OpenMP.
+Questa versione e' pensata per il cluster HPC quando i file temporanei stanno
+su storage locale del nodo, ad esempio /tmp o SLURM_TMPDIR.
+
+La funzione mergePass() resta l'unica primitiva di fusione:
+tutta la logica K-way con min-heap resta invariata, cambia solo
+il modo in cui le run vengono distribuite ai thread.
+
+La strategia non usa merge_fan:
+1. Le run vengono divise in blocchi contigui, uno per thread.
+2. Ogni thread chiama mergePass() sul proprio blocco e produce un file intermedio.
+3. Il thread principale chiama mergePass() sugli intermedi finali.
+
+In questo modo il merge usa al massimo due passate su disco:
+una passata parallela dalle run agli intermedi e una passata finale dagli
+intermedi al file di output.
+*/
+inline void ompKwayMerge(
+    const std::vector<std::string>& runPaths,   // Vettore di path delle run da fondere.
+    const std::string&              outputPath, // Path del file di output finale.
+    bool                            deleteRuns    = true, // Indica se cancellare le run sorgente.
+    bool                            parallelMerge = true) // Indica se parallelizzare il primo livello.
+{
+    // Se non ci sono run, lancio un errore.
+    if (runPaths.empty()) {
+        throw std::runtime_error("omp_kway_merge: nessuna run");
+    }
+
+    const bool verbose = mergeVerboseEnabled();
+    const int maxThreads = std::max(1, omp_get_max_threads());
+
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] impl=omp-flat initialRuns=%zu maxThreads=%d parallelMerge=%s\n",
+                     runPaths.size(), maxThreads, parallelMerge ? "yes" : "no");
+    }
+
+    // Caso banale: run singola, basta rinominare o copiare in O(1).
+    if (runPaths.size() == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=0 runs=1 groups=1 tasks=0 mode=singleRun\n");
+        }
+        moveOrCopyRun(runPaths[0], outputPath, deleteRuns);
+        return;
+    }
+
+    // Se il merge parallelo e' disabilitato, faccio direttamente un K-way merge unico.
+    if (!parallelMerge || maxThreads == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePass\n",
+                         runPaths.size());
+        }
+        mergePass(runPaths, outputPath, deleteRuns);
+        return;
+    }
+
+    // Uso al massimo un thread per run. Se ci sono meno run dei thread,
+    // i thread in eccesso non vengono attivati per evitare lavoro vuoto.
+    const int workers = std::min<int>(maxThreads, static_cast<int>(runPaths.size()));
+
+    /*
+    Soglia HPC per evitare una passata inutile sui dati.
+    Se le run sono poche rispetto ai thread disponibili, il primo livello
+    parallelo produrrebbe gruppi troppo piccoli e costringerebbe comunque
+    a una seconda passata finale sugli intermedi. In quel caso un solo
+    mergePass() diretto legge e scrive i dati una volta sola ed e' piu'
+    efficiente anche su /tmp in RAM.
+    */
+    if (runPaths.size() < 2 * static_cast<size_t>(workers)) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePassSmallInput workers=%d\n",
+                         runPaths.size(), workers);
+        }
+        mergePass(runPaths, outputPath, deleteRuns);
+        return;
+    }
+
+    const size_t groupSize = (runPaths.size() + static_cast<size_t>(workers) - 1)
+                           / static_cast<size_t>(workers);
+    const std::string tmpDir = ompMergeParentDir(runPaths[0]);
+
+    // Preparo un file intermedio per ogni thread che partecipa al merge.
+    std::vector<std::string> intermediateFiles(workers);
+    for (int worker = 0; worker < workers; worker++) {
+        intermediateFiles[worker] = ompFlatMergeTmpPath(tmpDir, worker);
+    }
+
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] level=1 runs=%zu groups=%d tasks=%d mode=parallelFlat groupSize=%zu\n",
+                     runPaths.size(), workers, workers, groupSize);
+    }
+
+    std::atomic<bool> mergeError{false};
+    std::exception_ptr firstError = nullptr;
+
+    /*
+    Ogni iterazione del parallel for assegna a un thread un intervallo contiguo
+    di run gia' ordinate. Gli output sono distinti, quindi non c'e' contesa sui
+    file intermedi. In caso di errore, salvo la prima eccezione e la rilancio
+    nel thread principale dopo la barriera implicita del parallel for.
+    */
+    #pragma omp parallel for schedule(static) default(none) \
+        shared(runPaths, intermediateFiles, groupSize, workers, \
+               deleteRuns, mergeError, firstError)
+    for (int worker = 0; worker < workers; worker++) {
+        const size_t begin = static_cast<size_t>(worker) * groupSize;
+        const size_t end = std::min(begin + groupSize, runPaths.size());
+
+        if (begin >= end || mergeError.load(std::memory_order_relaxed)) {
+            continue;
+        }
+
+        try {
+            std::vector<std::string> group = ompMergeGroup(runPaths, begin, end);
+            mergePass(group, intermediateFiles[worker], deleteRuns);
+        } catch (...) {
+            mergeError.store(true, std::memory_order_relaxed);
+            #pragma omp critical(omp_merge_flat_error)
+            {
+                if (firstError == nullptr) {
+                    firstError = std::current_exception();
+                }
+            }
+        }
+    }
+
+    if (firstError != nullptr) {
+        std::rethrow_exception(firstError);
+    }
+
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] level=2 runs=%d groups=1 tasks=0 mode=finalMergePass\n",
+                     workers);
+    }
+
+    // Il merge finale cancella sempre gli intermedi prodotti dal primo livello.
+    mergePass(intermediateFiles, outputPath, /*deleteSource=*/true);
 }

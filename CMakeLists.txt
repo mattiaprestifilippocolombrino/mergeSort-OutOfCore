@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(OutOfCoreMergeSort CXX)
 
+# ─── Build type di default ────────────────────────────────────────────────────
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # ─── Standard C++17 ───────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,6 +86,7 @@ endif()
 # ─── Versione MPI + OpenMP (Distributed) ──────────────────────────────────────
 if(MPI_CXX_FOUND)
     add_executable(mpi_sort mpi/src/mpi_sort.cpp)
+    target_include_directories(mpi_sort PRIVATE omp/include)
     target_link_libraries(mpi_sort PRIVATE MPI::MPI_CXX OpenMP::OpenMP_CXX)
 endif()
 

@@ -8,7 +8,8 @@
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run (default: 256 MB)
 //   --workers   N     Numero di Worker FastFlow (default: max hw - 1)
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan N     Fan-in massimo del K-way merge (default: 64)
+//   --merge-fan N     Fan-in massimo solo per --legacy-merge (default: 64)
+//   --legacy-merge    Usa il vecchio merge multi-pass a livelli
 //   --keep-runs       Non eliminare i file di run dopo il merge (debug)
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +67,8 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     Dimensione chunk in MB      (default: 256)\n"
               << "  --workers   N     Worker FastFlow             (default: max hw - 1)\n"
               << "  --tmp-dir   PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in massimo K-way merge  (default: 64)\n"
+              << "  --merge-fan N     Fan-in solo legacy merge    (default: 64)\n"
+              << "  --legacy-merge    Usa il vecchio merge multi-pass a livelli\n"
               << "  --keep-runs       Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -84,6 +86,7 @@ int main(int argc, char* argv[]) {
     size_t      chunkMb    = 256;
     int         mergeFan   = 64;
     bool        keepRuns   = false;
+    bool        legacyMerge = false;
 
     // ff_numCores() restituisce il numero di core logici disponibili.
     // Riservo 1 core per l'Emitter, assegno gli altri ai Worker.
@@ -103,6 +106,8 @@ int main(int argc, char* argv[]) {
             tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
+        } else if (a == "--legacy-merge") {
+            legacyMerge = true;
         } else if (a == "--keep-runs") {
             keepRuns = true;
         } else {
@@ -125,7 +130,8 @@ int main(int argc, char* argv[]) {
               << "  output       : " << outputPath    << "\n"
               << "  chunk        : " << chunkMb       << " MB\n"
               << "  workers      : " << nWorkers       << "\n"
-              << "  merge fan-in : " << mergeFan      << "\n"
+              << "  merge impl   : " << (legacyMerge ? "legacy multi-pass" : "flat two-stage") << "\n"
+              << "  merge fan-in : " << (legacyMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
 
@@ -156,7 +162,11 @@ int main(int argc, char* argv[]) {
     // ff_kway_merge usa ff::ParallelFor internamente: nessun conflitto di
     // CPU affinity con la farm usata nella Fase 1. Un solo runtime FF.
     bool deleteRuns = !keepRuns;
-    ffKwayMerge(runs, outputPath, nWorkers, mergeFan, deleteRuns);   // Chiama la funzione ff_kway_merge per fondere le run in un unico file di output.
+    if (legacyMerge) {
+        ffKwayMergeLegacy(runs, outputPath, nWorkers, mergeFan, deleteRuns);
+    } else {
+        ffKwayMerge(runs, outputPath, nWorkers, deleteRuns);   // Chiama la funzione ff_kway_merge per fondere le run in un unico file di output.
+    }
 
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();   // Fine a contare il tempo.
 
