@@ -17,17 +17,22 @@ export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 LOCAL_TMP="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
 RUN_ROOT="$LOCAL_TMP/$USER/spmRun"
 export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
-export RESULTS_DIR="$PROJECT_DIR/benchmark_results"
+export RESULTS_ROOT="$PROJECT_DIR/benchmark_results"
+export BENCHMARK_RUN_ID="${SLURM_JOB_ID:-localRun}"
+export RESULTS_DIR="$RESULTS_ROOT/run_$BENCHMARK_RUN_ID"
+export LOG_DIR="$RESULTS_DIR/logs"
 export DATA_DIR="$RUN_DIR/data"
 export TMP_BASE="$RUN_DIR/tmp"
 
-mkdir -p "$RESULTS_DIR" "$DATA_DIR" "$TMP_BASE"
+mkdir -p "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
 echo "SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-}"
 echo "PROJECT_DIR=$PROJECT_DIR"
 echo "RUN_DIR=$RUN_DIR"
+echo "RESULTS_ROOT=$RESULTS_ROOT"
 echo "RESULTS_DIR=$RESULTS_DIR"
+echo "LOG_DIR=$LOG_DIR"
 echo "DATA_DIR=$DATA_DIR"
 echo "TMP_BASE=$TMP_BASE"
 
@@ -40,4 +45,4 @@ export VERIFY="${VERIFY:-0}"
 export RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-180}"
 
 ./benchmarks/tune_single_node.sh
-python3 benchmarks/analyze.py --results-dir benchmark_results
+python3 benchmarks/analyze.py --results-dir "$RESULTS_DIR"

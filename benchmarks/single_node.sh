@@ -54,7 +54,7 @@ run_impl() {
     if [[ -n "$log_suffix" ]]; then
         log_suffix="_${log_suffix}"
     fi
-    local log_file="$RESULTS_DIR/${impl}_${case}_t${threads}_i${trial}${log_suffix}.log"
+    local log_file="$LOG_DIR/${impl}_${case}_t${threads}_i${trial}${log_suffix}.log"
 
     if [[ "$impl" == "omp" ]]; then
         local omp_merge_args=()

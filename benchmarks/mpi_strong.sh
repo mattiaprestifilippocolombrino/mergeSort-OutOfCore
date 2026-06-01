@@ -53,7 +53,7 @@ for spec in $BENCHMARK_CASES; do
 
             for trial in $(seq 1 "$TRIALS"); do
                 output="$TMP_BASE/out_strong_${name}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"
-                log_file="$RESULTS_DIR/mpi_strong_${name}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
+                log_file="$LOG_DIR/mpi_strong_${name}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
 
                 log "MPI strong case=$name nodes=$nodes ranks=$ranks threads/rank=$threads trial=$trial"
                 if ! run_and_capture_sort "$log_file" \

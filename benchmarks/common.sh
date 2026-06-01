@@ -6,9 +6,12 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
-RESULTS_DIR="${RESULTS_DIR:-$PROJECT_DIR/benchmark_results}"
-DATA_DIR="${DATA_DIR:-$PROJECT_DIR/benchmark_data}"
 TMP_BASE="${TMP_BASE:-${SLURM_TMPDIR:-${TMPDIR:-/tmp}}}"
+RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_DIR/benchmark_results}"
+BENCHMARK_RUN_ID="${BENCHMARK_RUN_ID:-${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)_$$}}"
+RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT/run_$BENCHMARK_RUN_ID}"
+LOG_DIR="${LOG_DIR:-$RESULTS_DIR/logs}"
+DATA_DIR="${DATA_DIR:-$TMP_BASE/spm_benchmark_data}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 CHUNK_MB="${CHUNK_MB:-64}"
@@ -31,7 +34,7 @@ WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-6250000}"
 WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-64}"
 WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
 
-mkdir -p "$RESULTS_DIR" "$DATA_DIR" "$TMP_BASE"
+mkdir -p "$RESULTS_ROOT" "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
 
 log() {
     printf '[bench] %s\n' "$*" >&2
@@ -289,12 +292,14 @@ extract_generated_runs() {
 run_and_capture_sort() {
     local out_log="$1"
     shift
+    mkdir -p "$(dirname "$out_log")"
     "$@" >"$out_log" 2>&1
 }
 
 write_csv_header() {
     local file="$1"
     local header="$2"
+    mkdir -p "$(dirname "$file")"
     if [[ "${APPEND_RESULTS:-0}" == "1" && -s "$file" ]]; then
         local existing_header
         existing_header="$(head -n 1 "$file")"

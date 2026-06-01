@@ -17,8 +17,8 @@ slurm_tune_single_node.sbatch
 che produce:
 
 ```text
-benchmark_results/single_node_tuning_raw.csv
-benchmark_results/single_node_tuning_summary.csv
+benchmark_results/run_<jobid>/single_node_tuning_raw.csv
+benchmark_results/run_<jobid>/single_node_tuning_summary.csv
 ```
 
 Configurazione:
@@ -57,6 +57,17 @@ Metriche:
 speedup = T_1 / T_p
 efficiency = speedup / p
 ```
+
+Il summary CSV include anche le stesse metriche calcolate sulle singole fasi:
+
+```text
+sort_speedup, sort_efficiency
+merge_speedup, merge_efficiency
+```
+
+Questo serve a separare lo scaling della Fase 1, cioe' sort dei chunk, dallo
+scaling della Fase 2, cioe' merge delle run. Nei grafici single-node le curve
+di total, sort e merge sono mostrate insieme.
 
 ### Payload distribution
 
@@ -102,6 +113,16 @@ automaticamente in `TMP_BASE/mpi_input` sui nodi usati dalla run MPI. La copia
 non entra nei tempi del sorter: serve solo a evitare che ogni rank legga la
 propria stripe da NFS durante la misura.
 
+Nei summary MPI le colonne fase-per-fase hanno questa semantica:
+
+```text
+avg_sort_s  = Fase 1 locale: stripe, sort dei chunk e merge locale del rank
+avg_merge_s = Fase 2 distribuita: merge ad albero tra rank MPI
+```
+
+Quindi `avg_sort_s` in MPI non e' solo il tempo di `std::sort`, ma l'intera
+fase locale prima del merge distribuito.
+
 ### MPI weak scaling
 
 Record per nodo:
@@ -143,16 +164,32 @@ RUN_TIMEOUT_SECONDS=180
 
 `MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
 
+I file temporanei dei sorter vengono passati con `--tmp-dir` e finiscono sotto
+`TMP_BASE`. Anche i dataset generati dai benchmark usano `DATA_DIR`, che di
+default e' `$TMP_BASE/spm_benchmark_data`. Gli script Slurm single-node
+impostano `DATA_DIR` sotto la directory temporanea del job; lo script MPI tiene
+il dataset persistente in `benchmark_data` e lo copia poi in `TMP_BASE/mpi_input`
+sui nodi usati. I risultati CSV e i log restano invece in `benchmark_results`.
+
 ## Output
 
-File principali:
+Ogni esecuzione crea una cartella dedicata sotto `benchmark_results`:
 
 ```text
-benchmark_results/single_node_tuning_summary.csv
-benchmark_results/single_node_summary.csv
-benchmark_results/mpi_strong_summary.csv
-benchmark_results/mpi_weak_summary.csv
-benchmark_results/*.log
+benchmark_results/
+  run_<jobid-o-timestamp>/
+    single_node_raw.csv
+    single_node_summary.csv
+    single_node_tuning_raw.csv
+    single_node_tuning_summary.csv
+    mpi_strong_raw.csv
+    mpi_strong_summary.csv
+    mpi_weak_raw.csv
+    mpi_weak_summary.csv
+    logs/
+      *.log
+    plots/
+      *.png
 ```
 
 I log sono importanti per commentare:
@@ -162,6 +199,9 @@ Fase 1
 Fase 2
 Totale
 ```
+
+I grafici in `plots/` mostrano total, phase 1 e phase 2 per single-node, MPI
+strong e MPI weak.
 
 ## Note metodologiche
 

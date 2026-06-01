@@ -1,18 +1,7 @@
 # Guida principianti per i benchmark sullo spmcluster
 
-Questa guida dice cosa fare sul cluster, quali comandi lanciare e quali file controllare. Il progetto viene portato sul cluster con GitHub.
-
-Useremo sempre:
-
-```bash
-CHUNK_MB=64
-MERGE_FAN=8
-PAYLOAD_MAX_BUILD=4096
-TRIALS=1
-VERIFY=0
-```
-
-`MERGE_FAN` resta per compatibilita' e per le run legacy; con il merge flat nuovo non influenza la campagna finale.
+Questa guida spiega come lanciare i benchmark, dove finiscono i file e quali
+colonne guardare. I comandi assumono che il progetto si trovi in `~/spmProject`.
 
 ## 1. Entrare nel cluster
 
@@ -24,7 +13,7 @@ ssh LOGIN@spmcluster.unipi.it
 
 Se sei fuori dalla rete UNIPI, attiva prima la VPN.
 
-## 2. Scaricare o aggiornare il progetto
+## 2. Aggiornare il progetto
 
 Prima volta:
 
@@ -42,7 +31,7 @@ git pull
 chmod +x benchmarks/*.sh benchmarks/*.sbatch
 ```
 
-## 3. Controlli iniziali
+Controlli utili:
 
 ```bash
 which cmake
@@ -55,7 +44,7 @@ bash -n benchmarks/*.sh benchmarks/*.sbatch
 python3 -m py_compile benchmarks/analyze.py
 ```
 
-Se manca FastFlow:
+Se usi FastFlow e manca la libreria:
 
 ```bash
 cd ~
@@ -63,15 +52,110 @@ git clone https://github.com/fastflow/fastflow.git fastFlow
 cd ~/spmProject
 ```
 
-Nei job FastFlow usa sempre:
+Nei job FastFlow imposta:
 
 ```bash
 FF_ROOT="$HOME/fastFlow"
 ```
 
-## 4. Smoke test
+## 3. Dove finiscono i risultati
 
-Serve solo a vedere che tutto compili e parta.
+Ogni job crea una cartella nuova:
+
+```text
+benchmark_results/run_<jobid>/
+```
+
+Dentro trovi:
+
+```text
+single_node_raw.csv
+single_node_summary.csv
+mpi_strong_raw.csv
+mpi_strong_summary.csv
+mpi_weak_raw.csv
+mpi_weak_summary.csv
+logs/
+plots/
+```
+
+Per puntare sempre all'ultima run:
+
+```bash
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+echo "$RUN_DIR"
+```
+
+I file grandi temporanei non stanno nei risultati: gli script passano
+`--tmp-dir "$TMP_BASE"` ai sorter. I dataset generati per i benchmark stanno in
+`DATA_DIR`, che di default e' sotto `TMP_BASE`, oppure sotto `RUN_DIR/data`
+negli script Slurm single-node.
+
+## 4. Cosa significano Fase 1 e Fase 2
+
+OpenMP e FastFlow single-node:
+
+- Fase 1: lettura input, sort dei chunk e scrittura delle run ordinate.
+- Fase 2: merge delle run.
+
+MPI:
+
+- Fase 1: lavoro locale di ogni rank. Include stripe locale, sort dei chunk e
+  merge locale fino a `local_sorted.bin`.
+- Fase 2: merge distribuito ad albero tra rank MPI.
+
+Quindi nei CSV MPI `avg_sort_s` indica la fase locale completa, non solo il
+tempo di `std::sort`.
+
+## 5. Colonne importanti nei CSV
+
+Single-node:
+
+```text
+threads
+avg_total_s, avg_sort_s, avg_merge_s
+baseline_total_s, speedup, efficiency
+baseline_sort_s, sort_speedup, sort_efficiency
+baseline_merge_s, merge_speedup, merge_efficiency
+```
+
+MPI strong:
+
+```text
+nodes, ranks, threads_per_rank, total_cores
+avg_total_s, avg_sort_s, avg_merge_s
+strong_speedup, strong_efficiency
+strong_sort_speedup, strong_sort_efficiency
+strong_merge_speedup, strong_merge_efficiency
+```
+
+MPI weak:
+
+```text
+nodes, records, records_per_node
+avg_total_s, avg_sort_s, avg_merge_s
+weak_efficiency
+weak_sort_efficiency
+weak_merge_efficiency
+```
+
+Formule:
+
+```text
+single speedup = T_1 / T_p
+single efficiency = speedup / threads
+
+strong_speedup = T_base / T_p
+strong_efficiency = strong_speedup / (nodes / baseline_nodes)
+
+weak_efficiency = T_base / T_p
+```
+
+Le varianti `sort_*` e `merge_*` applicano le stesse formule alle singole fasi.
+
+## 6. Smoke test
+
+Serve solo a verificare build, esecuzione e verifier.
 
 ```bash
 cd ~/spmProject
@@ -86,17 +170,17 @@ sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 Controlla:
 
 ```bash
-squeue -u $USER
+squeue -u "$USER"
 tail -f slurm_single_*.out
 tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+ls -lh "$RUN_DIR/logs"
 ```
 
-Se va tutto bene, passa ai benchmark veri.
+## 7. OpenMP single-node
 
-## 5. OpenMP single-node
-
-Questo e' il benchmark principale per speedup ed efficiency su un nodo.
+Benchmark principale per speedup ed efficiency su un nodo.
 
 ```bash
 cd ~/spmProject
@@ -108,21 +192,20 @@ TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-File da guardare:
+Controlla:
 
 ```bash
 tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
-ls -lh benchmark_results/omp_manySmall50M_*.log
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+tail -n 80 "$RUN_DIR"/logs/omp_*.log
 ```
 
-Nel CSV guarda:
+Nel report commenta soprattutto la differenza tra `sort_efficiency` e
+`merge_efficiency`: il sort tende a scalare meglio, il merge e l'I/O limitano
+il totale.
 
-```text
-threads, avg_total_s, avg_sort_s, avg_merge_s, baseline_total_s, speedup, efficiency
-```
-
-## 6. FastFlow single-node
+## 8. FastFlow single-node
 
 Lancialo separato da OpenMP.
 
@@ -135,24 +218,24 @@ PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
-APPEND_RESULTS=1 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-File da guardare:
+Controlla:
 
 ```bash
 tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
-ls -lh benchmark_results/ff_manySmall50M_*.log
-tail -n 80 benchmark_results/ff_manySmall50M_*.log
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+tail -n 80 "$RUN_DIR"/logs/ff_*.log
 ```
 
-Se trovi `timeout`, `pthread_create` o `spawning worker thread`, quella run non e' valida: conserva il log e commentalo.
+Se trovi `timeout`, `pthread_create` o errori di worker FastFlow, conserva il
+log e segnala la run come non valida.
 
-## 7. Payload distribution
+## 9. Payload distribution
 
-Questo job varia `N` e payload.
+Serve a confrontare molti record piccoli con meno record e payload piu' grande.
 
 ```bash
 cd ~/spmProject
@@ -161,23 +244,21 @@ BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
-APPEND_RESULTS=1 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-File da guardare:
+Controlla:
 
 ```bash
-tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
-ls -lh benchmark_results/omp_mediumPayload8M*.log benchmark_results/omp_largePayload2M*.log
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+ls -lh "$RUN_DIR/logs"
 ```
 
-## 8. MPI strong scaling
+## 10. MPI strong scaling
 
-Dataset fisso, nodi crescenti. Serve per le curve strong scaling.
-Prima di ogni run MPI lo script copia l'input su `/tmp` locale dei nodi usati:
-questa fase non entra nei tempi del sorter e serve a non misurare NFS.
+Dataset fisso, nodi crescenti. Lo script copia l'input su `/tmp` locale dei
+nodi prima della misura, quindi la copia non entra in Fase 1/Fase 2/Totale.
 
 ```bash
 cd ~/spmProject
@@ -191,22 +272,23 @@ TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-File da guardare:
+Controlla:
 
 ```bash
-squeue -u $USER
+squeue -u "$USER"
 tail -f slurm_mpi_*.out
 tail -n 160 slurm_mpi_*.err
-cat benchmark_results/mpi_strong_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/mpi_strong_summary.csv"
+tail -n 80 "$RUN_DIR"/logs/mpi_strong_*.log
 ```
 
-Nel report collega questa parte ad Amdahl: merge, I/O e comunicazione limitano lo speedup.
+Nel report collega questa parte ad Amdahl: comunicazione, I/O, merge locale e
+merge distribuito limitano lo speedup.
 
-## 9. MPI weak scaling
+## 11. MPI weak scaling
 
 Il lavoro cresce con i nodi: `6.25M` record per nodo.
-Anche per weak scaling l'input viene copiato su `/tmp` locale prima della
-misura, quindi le curve riflettono meglio calcolo, I/O locale e comunicazione MPI.
 
 ```bash
 cd ~/spmProject
@@ -220,22 +302,19 @@ TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-File da guardare:
+Controlla:
 
 ```bash
 tail -n 160 slurm_mpi_*.err
-cat benchmark_results/mpi_weak_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/mpi_weak_summary.csv"
 ```
 
-Nel report collega questa parte a Gustafson e alla weak efficiency:
+Nel report collega questa parte a Gustafson e alla weak efficiency.
 
-```text
-weak_efficiency = T_base / T_p
-```
+## 12. Correttezza finale
 
-## 10. Controllo correttezza finale
-
-Run piccola con `VERIFY=1`.
+Fai una run piccola con `VERIFY=1`, separata dalle misure finali.
 
 ```bash
 cd ~/spmProject
@@ -247,29 +326,21 @@ TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
 
-## 11. Rigenerare summary e grafici
-
-Dopo ogni job puoi rigenerare i summary:
+## 13. Rigenerare summary e grafici
 
 ```bash
 cd ~/spmProject
-python3 benchmarks/analyze.py --results-dir benchmark_results
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 
-File importanti:
+I grafici sono in:
 
 ```text
-benchmark_results/single_node_summary.csv
-benchmark_results/mpi_strong_summary.csv
-benchmark_results/mpi_weak_summary.csv
-benchmark_results/*.log
-slurm_single_*.out
-slurm_single_*.err
-slurm_mpi_*.out
-slurm_mpi_*.err
+$RUN_DIR/plots/
 ```
 
-## 12. Scaricare i risultati su Windows
+## 14. Scaricare i risultati su Windows
 
 Sul cluster:
 
@@ -291,33 +362,15 @@ mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
 scp LOGIN@spmcluster.unipi.it:~/spmProject/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
 ```
 
-## 13. Cosa scrivere nella relazione
-
-Single-node:
-
-```text
-speedup = Tseq / Tpar
-efficiency = speedup / threads
-```
-
-Strong scaling:
-
-```text
-strong_speedup = T_base / T_p
-strong_efficiency = strong_speedup / (nodes / baseline_nodes)
-```
-
-Weak scaling:
-
-```text
-weak_efficiency = T_base / T_p
-```
+## 15. Cosa scrivere nella relazione
 
 Commenta:
 
-- il merge e l'I/O come colli di bottiglia;
-- il sort che scala meglio del merge;
-- payload piccoli vs payload grandi;
+- speedup ed efficiency totali;
+- speedup/efficiency della Fase 1 e della Fase 2;
+- perché il merge scala meno del sort;
+- payload piccoli contro payload grandi;
 - Amdahl per strong scaling;
 - Gustafson per weak scaling;
-- eventuali errori FastFlow, se compaiono nei log.
+- eventuali run FastFlow non valide, con riferimento ai log.
+

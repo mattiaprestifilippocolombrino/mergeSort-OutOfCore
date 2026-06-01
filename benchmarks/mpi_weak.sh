@@ -54,7 +54,7 @@ for weak_spec in $WEAK_CASES; do
 
             for trial in $(seq 1 "$TRIALS"); do
                 output="$TMP_BASE/out_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"
-                log_file="$RESULTS_DIR/mpi_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
+                log_file="$LOG_DIR/mpi_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.log"
 
                 log "MPI weak case=$case_name_weak nodes=$nodes records=$records ranks=$ranks threads/rank=$threads trial=$trial"
                 if ! run_and_capture_sort "$log_file" \

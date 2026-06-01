@@ -300,16 +300,22 @@ inline void ompKwayMerge(
                            / static_cast<size_t>(workers);
     const std::string tmpDir = ompMergeParentDir(runPaths[0]);
 
-    // Preparo un file intermedio per ogni thread che partecipa al merge.
-    std::vector<std::string> intermediateFiles(workers);
-    for (int worker = 0; worker < workers; worker++) {
-        intermediateFiles[worker] = ompFlatMergeTmpPath(tmpDir, worker);
+    const int groups = static_cast<int>(
+        (runPaths.size() + groupSize - 1) / groupSize
+    );
+
+    // Preparo un file intermedio per ogni gruppo reale, non per ogni worker.
+    // Con groupSize arrotondato per eccesso possono esserci meno gruppi dei
+    // thread richiesti; passare file non creati al merge finale causa crash.
+    std::vector<std::string> intermediateFiles(groups);
+    for (int group = 0; group < groups; group++) {
+        intermediateFiles[group] = ompFlatMergeTmpPath(tmpDir, group);
     }
 
     if (verbose) {
         std::fprintf(stderr,
                      "[merge] level=1 runs=%zu groups=%d tasks=%d mode=parallelFlat groupSize=%zu\n",
-                     runPaths.size(), workers, workers, groupSize);
+                     runPaths.size(), groups, groups, groupSize);
     }
 
     std::atomic<bool> mergeError{false};
@@ -322,10 +328,10 @@ inline void ompKwayMerge(
     nel thread principale dopo la barriera implicita del parallel for.
     */
     #pragma omp parallel for schedule(static) default(none) \
-        shared(runPaths, intermediateFiles, groupSize, workers, \
+        shared(runPaths, intermediateFiles, groupSize, groups, \
                deleteRuns, mergeError, firstError)
-    for (int worker = 0; worker < workers; worker++) {
-        const size_t begin = static_cast<size_t>(worker) * groupSize;
+    for (int groupIdx = 0; groupIdx < groups; groupIdx++) {
+        const size_t begin = static_cast<size_t>(groupIdx) * groupSize;
         const size_t end = std::min(begin + groupSize, runPaths.size());
 
         if (begin >= end || mergeError.load(std::memory_order_relaxed)) {
@@ -334,7 +340,7 @@ inline void ompKwayMerge(
 
         try {
             std::vector<std::string> group = ompMergeGroup(runPaths, begin, end);
-            mergePass(group, intermediateFiles[worker], deleteRuns);
+            mergePass(group, intermediateFiles[groupIdx], deleteRuns);
         } catch (...) {
             mergeError.store(true, std::memory_order_relaxed);
             #pragma omp critical(omp_merge_flat_error)
@@ -353,7 +359,7 @@ inline void ompKwayMerge(
     if (verbose) {
         std::fprintf(stderr,
                      "[merge] level=2 runs=%d groups=1 tasks=0 mode=finalMergePass\n",
-                     workers);
+                     groups);
     }
 
     // Il merge finale cancella sempre gli intermedi prodotti dal primo livello.

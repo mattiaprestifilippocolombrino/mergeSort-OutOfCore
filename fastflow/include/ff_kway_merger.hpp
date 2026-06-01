@@ -346,15 +346,21 @@ inline void ffKwayMerge(
                            / static_cast<size_t>(workers);
     const std::string tmpDir = ffMergeParentDir(runPaths[0]);
 
-    std::vector<std::string> intermediateFiles(workers);
-    for (int worker = 0; worker < workers; worker++) {
-        intermediateFiles[worker] = ffFlatMergeTmpPath(tmpDir, worker);
+    const int groups = static_cast<int>(
+        (runPaths.size() + groupSize - 1) / groupSize
+    );
+
+    // Preparo solo gli intermedi dei gruppi reali. Quando groupSize e'
+    // arrotondato per eccesso, groups puo' essere minore di workers.
+    std::vector<std::string> intermediateFiles(groups);
+    for (int group = 0; group < groups; group++) {
+        intermediateFiles[group] = ffFlatMergeTmpPath(tmpDir, group);
     }
 
     if (verbose) {
         std::fprintf(stderr,
                      "[merge] level=1 runs=%zu groups=%d tasks=%d mode=parallelFlat groupSize=%zu\n",
-                     runPaths.size(), workers, workers, groupSize);
+                     runPaths.size(), groups, groups, groupSize);
     }
 
     ff::ParallelFor pf(workers, false);
@@ -368,17 +374,17 @@ inline void ffKwayMerge(
     il vettore group e chiama mergePass() una sola volta.
     Gli output sono distinti, quindi non c'e' contesa tra i worker sui file.
     */
-    pf.parallel_for(0, workers, 1, 0,
-        [&](const long worker) {
+    pf.parallel_for(0, groups, 1, 0,
+        [&](const long groupIdx) {
             if (mergeError.load(std::memory_order_relaxed)) return;   // Evito lavori inutili dopo il primo errore.
 
-            const size_t begin = static_cast<size_t>(worker) * groupSize;
+            const size_t begin = static_cast<size_t>(groupIdx) * groupSize;
             const size_t end = std::min(begin + groupSize, runPaths.size());
             if (begin >= end) return;
 
             try {
                 std::vector<std::string> group = ffMergeGroup(runPaths, begin, end);
-                mergePass(group, intermediateFiles[worker], deleteRuns);
+                mergePass(group, intermediateFiles[groupIdx], deleteRuns);
             } catch (...) {
                 mergeError.store(true, std::memory_order_relaxed);
                 std::lock_guard<std::mutex> lock(errorMutex);
@@ -396,7 +402,7 @@ inline void ffKwayMerge(
     if (verbose) {
         std::fprintf(stderr,
                      "[merge] level=2 runs=%d groups=1 tasks=0 mode=finalMergePass\n",
-                     workers);
+                     groups);
     }
 
     mergePass(intermediateFiles, outputPath, /*deleteSource=*/true);

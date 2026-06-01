@@ -84,7 +84,7 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str, str, str], float] = {}
+    baselines: dict[tuple[str, str, str, str], dict[str, float]] = {}
     for row in rows:
         key = (
             row["impl"],
@@ -94,9 +94,12 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
             row.get("merge_fan", ""),
         )
         threads = as_int(row, "threads")
-        time = as_float(row, "avg_total_s")
-        if threads == 1 and math.isfinite(time):
-            baselines[key] = time
+        if threads == 1:
+            baselines[key] = {
+                "total": as_float(row, "avg_total_s"),
+                "sort": as_float(row, "avg_sort_s"),
+                "merge": as_float(row, "avg_merge_s"),
+            }
 
     for row in rows:
         key = (
@@ -106,23 +109,28 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
             row.get("chunk_mb", ""),
             row.get("merge_fan", ""),
         )
-        baseline = baselines.get(key)
         threads = as_int(row, "threads")
-        time = as_float(row, "avg_total_s")
-        if baseline and time > 0 and threads > 0:
-            speedup = baseline / time
-            efficiency = speedup / threads
-            row["baseline_total_s"] = f"{baseline:.9g}"
-            row["speedup"] = f"{speedup:.9g}"
-            row["efficiency"] = f"{efficiency:.9g}"
-        else:
-            row["baseline_total_s"] = "nan"
-            row["speedup"] = "nan"
-            row["efficiency"] = "nan"
+        baseline = baselines.get(key, {})
+
+        def add_phase_metrics(label: str, avg_key: str, speedup_key: str, efficiency_key: str) -> None:
+            base_time = baseline.get(label, math.nan)
+            time = as_float(row, avg_key)
+            row[f"baseline_{label}_s"] = f"{base_time:.9g}" if math.isfinite(base_time) else "nan"
+            if math.isfinite(base_time) and base_time > 0 and time > 0 and threads > 0:
+                speedup = base_time / time
+                row[speedup_key] = f"{speedup:.9g}"
+                row[efficiency_key] = f"{speedup / threads:.9g}"
+            else:
+                row[speedup_key] = "nan"
+                row[efficiency_key] = "nan"
+
+        add_phase_metrics("total", "avg_total_s", "speedup", "efficiency")
+        add_phase_metrics("sort", "avg_sort_s", "sort_speedup", "sort_efficiency")
+        add_phase_metrics("merge", "avg_merge_s", "merge_speedup", "merge_efficiency")
 
 
 def add_strong_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str, str, str], tuple[float, int]] = {}
+    baselines: dict[tuple[str, str, str, str], tuple[dict[str, float], int]] = {}
     for row in rows:
         key = (
             row["case"],
@@ -131,12 +139,19 @@ def add_strong_metrics(rows: list[dict[str, str]]) -> None:
             row["threads_per_rank"],
         )
         nodes = as_int(row, "nodes")
-        time = as_float(row, "avg_total_s")
-        if not math.isfinite(time) or nodes <= 0:
+        total_time = as_float(row, "avg_total_s")
+        if not math.isfinite(total_time) or nodes <= 0:
             continue
         old = baselines.get(key)
         if old is None or nodes < old[1]:
-            baselines[key] = (time, nodes)
+            baselines[key] = (
+                {
+                    "total": total_time,
+                    "sort": as_float(row, "avg_sort_s"),
+                    "merge": as_float(row, "avg_merge_s"),
+                },
+                nodes,
+            )
 
     for row in rows:
         baseline = baselines.get(
@@ -148,22 +163,33 @@ def add_strong_metrics(rows: list[dict[str, str]]) -> None:
             )
         )
         nodes = as_int(row, "nodes")
-        time = as_float(row, "avg_total_s")
-        if baseline and time > 0 and nodes > 0:
-            base_time, base_nodes = baseline
-            speedup = base_time / time
-            efficiency = speedup / (nodes / base_nodes)
-            row["strong_speedup"] = f"{speedup:.9g}"
-            row["strong_efficiency"] = f"{efficiency:.9g}"
+        if baseline and nodes > 0:
+            base_times, base_nodes = baseline
             row["baseline_nodes"] = str(base_nodes)
+            scale = nodes / base_nodes
         else:
-            row["strong_speedup"] = "nan"
-            row["strong_efficiency"] = "nan"
+            base_times = {}
+            scale = math.nan
             row["baseline_nodes"] = "0"
+
+        def add_phase_metrics(label: str, avg_key: str, speedup_key: str, efficiency_key: str) -> None:
+            base_time = base_times.get(label, math.nan)
+            time = as_float(row, avg_key)
+            if math.isfinite(base_time) and base_time > 0 and time > 0 and math.isfinite(scale) and scale > 0:
+                speedup = base_time / time
+                row[speedup_key] = f"{speedup:.9g}"
+                row[efficiency_key] = f"{speedup / scale:.9g}"
+            else:
+                row[speedup_key] = "nan"
+                row[efficiency_key] = "nan"
+
+        add_phase_metrics("total", "avg_total_s", "strong_speedup", "strong_efficiency")
+        add_phase_metrics("sort", "avg_sort_s", "strong_sort_speedup", "strong_sort_efficiency")
+        add_phase_metrics("merge", "avg_merge_s", "strong_merge_speedup", "strong_merge_efficiency")
 
 
 def add_weak_metrics(rows: list[dict[str, str]]) -> None:
-    baselines: dict[tuple[str, str, str, str], tuple[float, int]] = {}
+    baselines: dict[tuple[str, str, str, str], tuple[dict[str, float], int]] = {}
     for row in rows:
         key = (
             row["case"],
@@ -177,7 +203,14 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
             continue
         old = baselines.get(key)
         if old is None or nodes < old[1]:
-            baselines[key] = (time, nodes)
+            baselines[key] = (
+                {
+                    "total": time,
+                    "sort": as_float(row, "avg_sort_s"),
+                    "merge": as_float(row, "avg_merge_s"),
+                },
+                nodes,
+            )
 
     for row in rows:
         baseline = baselines.get(
@@ -188,14 +221,24 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
                 row["threads_per_rank"],
             )
         )
-        time = as_float(row, "avg_total_s")
-        if baseline and time > 0:
-            base_time, base_nodes = baseline
-            row["weak_efficiency"] = f"{base_time / time:.9g}"
+        if baseline:
+            base_times, base_nodes = baseline
             row["baseline_nodes"] = str(base_nodes)
         else:
-            row["weak_efficiency"] = "nan"
+            base_times = {}
             row["baseline_nodes"] = "0"
+
+        def add_phase_efficiency(label: str, avg_key: str, efficiency_key: str) -> None:
+            base_time = base_times.get(label, math.nan)
+            time = as_float(row, avg_key)
+            if math.isfinite(base_time) and base_time > 0 and time > 0:
+                row[efficiency_key] = f"{base_time / time:.9g}"
+            else:
+                row[efficiency_key] = "nan"
+
+        add_phase_efficiency("total", "avg_total_s", "weak_efficiency")
+        add_phase_efficiency("sort", "avg_sort_s", "weak_sort_efficiency")
+        add_phase_efficiency("merge", "avg_merge_s", "weak_merge_efficiency")
 
 
 def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict[str, str]], weak: list[dict[str, str]]) -> None:
@@ -213,22 +256,26 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
     for (impl, merge_impl, case), group in grouped(single, ["impl", "merge_impl", "case"]).items():
         group = sorted(group, key=lambda r: as_int(r, "threads"))
         xs = [as_int(r, "threads") for r in group]
-        speedup = [as_float(r, "speedup") for r in group]
-        efficiency = [as_float(r, "efficiency") for r in group]
         if not xs:
             continue
         title = f"{impl} {merge_impl} {case}".replace("  ", " ")
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        axes[0].plot(xs, speedup, marker="o")
+        axes[0].plot(xs, [as_float(r, "speedup") for r in group], marker="o", label="total")
+        axes[0].plot(xs, [as_float(r, "sort_speedup") for r in group], marker="o", label="sort")
+        axes[0].plot(xs, [as_float(r, "merge_speedup") for r in group], marker="o", label="merge")
         axes[0].set_title(f"{title} speedup")
         axes[0].set_xlabel("threads/workers")
         axes[0].set_ylabel("speedup")
         axes[0].grid(True, alpha=0.3)
-        axes[1].plot(xs, efficiency, marker="o")
-        axes[1].set_title(f"{impl} {case} efficiency")
+        axes[0].legend()
+        axes[1].plot(xs, [as_float(r, "efficiency") for r in group], marker="o", label="total")
+        axes[1].plot(xs, [as_float(r, "sort_efficiency") for r in group], marker="o", label="sort")
+        axes[1].plot(xs, [as_float(r, "merge_efficiency") for r in group], marker="o", label="merge")
+        axes[1].set_title(f"{title} efficiency")
         axes[1].set_xlabel("threads/workers")
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
         fig.tight_layout()
         fig.savefig(plot_dir / f"single_{safe(impl)}_{safe(merge_impl)}_{safe(case)}.png")
         plt.close(fig)
@@ -236,21 +283,25 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
     for (case, local_merge_impl, threads), group in grouped(strong, ["case", "local_merge_impl", "threads_per_rank"]).items():
         group = sorted(group, key=lambda r: as_int(r, "nodes"))
         xs = [as_int(r, "nodes") for r in group]
-        speedup = [as_float(r, "strong_speedup") for r in group]
-        efficiency = [as_float(r, "strong_efficiency") for r in group]
         if not xs:
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        axes[0].plot(xs, speedup, marker="o")
+        axes[0].plot(xs, [as_float(r, "strong_speedup") for r in group], marker="o", label="total")
+        axes[0].plot(xs, [as_float(r, "strong_sort_speedup") for r in group], marker="o", label="phase 1")
+        axes[0].plot(xs, [as_float(r, "strong_merge_speedup") for r in group], marker="o", label="phase 2")
         axes[0].set_title(f"strong speedup {case}, {local_merge_impl}, t/rank={threads}")
         axes[0].set_xlabel("nodes")
         axes[0].set_ylabel("speedup")
         axes[0].grid(True, alpha=0.3)
-        axes[1].plot(xs, efficiency, marker="o")
+        axes[0].legend()
+        axes[1].plot(xs, [as_float(r, "strong_efficiency") for r in group], marker="o", label="total")
+        axes[1].plot(xs, [as_float(r, "strong_sort_efficiency") for r in group], marker="o", label="phase 1")
+        axes[1].plot(xs, [as_float(r, "strong_merge_efficiency") for r in group], marker="o", label="phase 2")
         axes[1].set_title(f"strong efficiency {case}, {local_merge_impl}, t/rank={threads}")
         axes[1].set_xlabel("nodes")
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
         fig.tight_layout()
         fig.savefig(plot_dir / f"strong_{safe(case)}_{safe(local_merge_impl)}_t{safe(threads)}.png")
         plt.close(fig)
@@ -258,21 +309,25 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
     for (case, local_merge_impl, threads), group in grouped(weak, ["case", "local_merge_impl", "threads_per_rank"]).items():
         group = sorted(group, key=lambda r: as_int(r, "nodes"))
         xs = [as_int(r, "nodes") for r in group]
-        time = [as_float(r, "avg_total_s") for r in group]
-        efficiency = [as_float(r, "weak_efficiency") for r in group]
         if not xs:
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        axes[0].plot(xs, time, marker="o")
+        axes[0].plot(xs, [as_float(r, "avg_total_s") for r in group], marker="o", label="total")
+        axes[0].plot(xs, [as_float(r, "avg_sort_s") for r in group], marker="o", label="phase 1")
+        axes[0].plot(xs, [as_float(r, "avg_merge_s") for r in group], marker="o", label="phase 2")
         axes[0].set_title(f"weak time {case}, {local_merge_impl}, t/rank={threads}")
         axes[0].set_xlabel("nodes")
         axes[0].set_ylabel("seconds")
         axes[0].grid(True, alpha=0.3)
-        axes[1].plot(xs, efficiency, marker="o")
+        axes[0].legend()
+        axes[1].plot(xs, [as_float(r, "weak_efficiency") for r in group], marker="o", label="total")
+        axes[1].plot(xs, [as_float(r, "weak_sort_efficiency") for r in group], marker="o", label="phase 1")
+        axes[1].plot(xs, [as_float(r, "weak_merge_efficiency") for r in group], marker="o", label="phase 2")
         axes[1].set_title(f"weak efficiency {case}, {local_merge_impl}, t/rank={threads}")
         axes[1].set_xlabel("nodes")
         axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
         fig.tight_layout()
         fig.savefig(plot_dir / f"weak_{safe(case)}_{safe(local_merge_impl)}_t{safe(threads)}.png")
         plt.close(fig)

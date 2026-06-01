@@ -1,6 +1,10 @@
 # Guida rapida misurazioni cluster
 
-Questa e' la sequenza finale consigliata. Non rifare il tuning lungo: dai dati raccolti la configurazione da usare e':
+Questa guida contiene la sequenza consigliata per produrre i risultati finali.
+Ogni job crea una cartella dedicata in `benchmark_results/run_<jobid>/`, con
+CSV, summary, grafici e log separati.
+
+## Parametri consigliati
 
 ```bash
 CHUNK_MB=64
@@ -10,9 +14,10 @@ TRIALS=1
 VERIFY=0
 ```
 
-Con il merge flat nuovo `MERGE_FAN` resta solo per compatibilita' e per eventuali run legacy: nella campagna finale la variabile da tenere sotto controllo e' `CHUNK_MB`.
+`MERGE_FAN` resta nei CSV per compatibilita' e per le run legacy. Con il merge
+flat attuale viene stampato come `non usato`.
 
-## 0. Preparazione
+## Preparazione
 
 ```bash
 cd ~/spmProject
@@ -22,14 +27,90 @@ bash -n benchmarks/*.sh benchmarks/*.sbatch
 python3 -m py_compile benchmarks/analyze.py
 ```
 
-## 1. OpenMP single-node
+## Layout risultati
 
-Benchmark principale per speedup ed efficiency su singolo nodo. Include `threads=1`, quindi:
+Ogni job scrive in una cartella propria:
 
 ```text
-speedup = Tseq / Tpar
-efficiency = speedup / threads
+benchmark_results/
+  run_<jobid>/
+    single_node_raw.csv
+    single_node_summary.csv
+    mpi_strong_raw.csv
+    mpi_strong_summary.csv
+    mpi_weak_raw.csv
+    mpi_weak_summary.csv
+    logs/
+      *.log
+    plots/
+      *.png
 ```
+
+Per trovare l'ultima run:
+
+```bash
+ls -td benchmark_results/run_* | head -n 1
+```
+
+Esempio:
+
+```bash
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+ls -lh "$RUN_DIR/logs"
+```
+
+## Significato delle fasi
+
+Single-node OpenMP/FastFlow:
+
+- `avg_sort_s`: Fase 1, sort dei chunk e scrittura delle run.
+- `avg_merge_s`: Fase 2, merge delle run.
+- `avg_total_s`: tempo totale del sorter.
+
+MPI:
+
+- `avg_sort_s`: Fase 1 locale, cioe' distribuzione stripe, sort locale dei chunk
+  e merge locale dentro ogni rank fino a `local_sorted.bin`.
+- `avg_merge_s`: Fase 2 distribuita, cioe' merge ad albero tra rank MPI.
+- `avg_total_s`: tempo totale visto da rank 0.
+
+Quindi in MPI il nome storico `sort_s` va letto come "fase locale", non come
+solo tempo di `std::sort`.
+
+## Metriche nei summary
+
+Single-node:
+
+```text
+speedup = baseline_total_s / avg_total_s
+efficiency = speedup / threads
+sort_speedup = baseline_sort_s / avg_sort_s
+sort_efficiency = sort_speedup / threads
+merge_speedup = baseline_merge_s / avg_merge_s
+merge_efficiency = merge_speedup / threads
+```
+
+MPI strong:
+
+```text
+strong_speedup = T_base / T_p
+strong_efficiency = strong_speedup / (nodes / baseline_nodes)
+strong_sort_speedup, strong_sort_efficiency
+strong_merge_speedup, strong_merge_efficiency
+```
+
+MPI weak:
+
+```text
+weak_efficiency = T_base / T_p
+weak_sort_efficiency = sort_base / sort_p
+weak_merge_efficiency = merge_base / merge_p
+```
+
+I grafici in `plots/` mostrano insieme total, phase 1 e phase 2.
+
+## OpenMP single-node
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
@@ -40,18 +121,21 @@ TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Da guardare:
+Controllo:
 
 ```bash
-squeue -u $USER
+squeue -u "$USER"
 tail -f slurm_single_*.out
 tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+ls -lh "$RUN_DIR/logs"
 ```
 
-## 2. FastFlow single-node
+## FastFlow single-node
 
-Eseguilo separato da OpenMP. Se FastFlow fallisce o va in timeout, conserva i log e riportalo come limite sperimentale.
+Eseguilo separato da OpenMP, cosi' eventuali problemi FastFlow non sporcano la
+campagna OpenMP.
 
 ```bash
 RUN_OMP=0 RUN_FF=1 \
@@ -61,22 +145,21 @@ PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
-APPEND_RESULTS=1 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Da guardare:
+Controllo:
 
 ```bash
-tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
-ls -lh benchmark_results/ff_*.log
-tail -n 80 benchmark_results/ff_*.log
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+tail -n 80 "$RUN_DIR"/logs/ff_*.log
 ```
 
-## 3. Payload distribution
+Se compaiono `timeout`, `pthread_create` o errori di spawning worker, quella run
+non e' valida: conserva il log e commentalo.
 
-Serve a soddisfare la richiesta di variare `N` e payload.
+## Payload distribution
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
@@ -84,69 +167,76 @@ BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
-APPEND_RESULTS=1 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Da guardare:
+Controllo:
 
 ```bash
-tail -n 120 slurm_single_*.err
-cat benchmark_results/single_node_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/single_node_summary.csv"
+ls -lh "$RUN_DIR/logs"
 ```
 
-## 4. MPI strong scaling
+## MPI strong scaling
 
-Dataset fisso, nodi crescenti. Interpreta i risultati con Amdahl: merge, I/O e comunicazione limitano lo speedup.
-Lo script genera il dataset in `benchmark_data`, poi lo copia automaticamente
-su `/tmp` dei nodi usati dalla run MPI prima di lanciare il sorter. Questa
-copia non entra nei tempi `Fase 1/Fase 2/Totale`.
+Dataset fisso, nodi crescenti. Lo script copia l'input su `/tmp` locale dei
+nodi usati prima del sorter; questa copia non entra nei tempi.
 
 ```bash
 RUN_STRONG=1 RUN_WEAK=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
-STRONG_NODES="1 2 4 8" RANKS_PER_NODE=1 \
+STRONG_NODES="1 2 4 8" \
+RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-Da guardare:
+Controllo:
 
 ```bash
-squeue -u $USER
+squeue -u "$USER"
 tail -f slurm_mpi_*.out
 tail -n 160 slurm_mpi_*.err
-cat benchmark_results/mpi_strong_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/mpi_strong_summary.csv"
+ls -lh "$RUN_DIR/logs"
 ```
 
-## 5. MPI weak scaling
+Nel report interpreta questa parte con Amdahl: I/O, merge locale, merge
+distribuito e comunicazione limitano lo speedup.
 
-Il lavoro cresce con i nodi: `6.25M` record per nodo, quindi `50M` record a 8 nodi. Interpreta i risultati con Gustafson e con la weak efficiency.
-Anche qui ogni input viene copiato su `/tmp` locale dei nodi prima della misura,
-cosi' i rank non leggono le stripe da NFS.
+## MPI weak scaling
+
+Il lavoro cresce con i nodi: `6.25M` record per nodo, quindi `50M` record a 8
+nodi.
 
 ```bash
 RUN_STRONG=0 RUN_WEAK=1 \
 WEAK_CASES="weakSmall6250k:6250000:64" \
-STRONG_NODES="1 2 4 8" RANKS_PER_NODE=1 \
+STRONG_NODES="1 2 4 8" \
+RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
-Da guardare:
+Controllo:
 
 ```bash
 tail -n 160 slurm_mpi_*.err
-cat benchmark_results/mpi_weak_summary.csv
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+cat "$RUN_DIR/mpi_weak_summary.csv"
 ```
 
-## 6. Correttezza
+Nel report interpreta questa parte con Gustafson e con la weak efficiency.
 
-Run piccola con verifica attiva, separata dalle misure.
+## Correttezza
+
+La verifica va tenuta fuori dai benchmark finali e fatta su una run piccola.
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
@@ -157,24 +247,14 @@ TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
 
-## 7. Rigenerare summary
+## Rigenerare summary e grafici
 
 ```bash
-python3 benchmarks/analyze.py --results-dir benchmark_results
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 
-File principali:
-
-```text
-benchmark_results/single_node_summary.csv
-benchmark_results/mpi_strong_summary.csv
-benchmark_results/mpi_weak_summary.csv
-benchmark_results/*.log
-slurm_single_*.out / .err
-slurm_mpi_*.out / .err
-```
-
-Il tuning e' opzionale. Se vuoi rifarlo:
+## Tuning opzionale
 
 ```bash
 BENCHMARK_CASES="manySmall50M:50000000:64" \
@@ -184,3 +264,4 @@ PAYLOAD_MAX_BUILD=4096 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:10:00 benchmarks/slurm_tune_single_node.sbatch
 ```
+
