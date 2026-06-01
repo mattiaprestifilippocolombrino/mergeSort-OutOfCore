@@ -286,7 +286,7 @@ inline void ompKwayMerge(
     mergePass() diretto legge e scrive i dati una volta sola ed e' piu'
     efficiente anche su /tmp in RAM.
     */
-    if (runPaths.size() < 2 * static_cast<size_t>(workers)) {
+    if (runPaths.size() <= static_cast<size_t>(workers)) {
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePassSmallInput workers=%d\n",
