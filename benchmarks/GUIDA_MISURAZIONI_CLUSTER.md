@@ -14,8 +14,9 @@ TRIALS=1
 VERIFY=0
 ```
 
-`MERGE_FAN` resta nei CSV per compatibilita' e per le run legacy. Con il merge
-flat attuale viene stampato come `non usato`.
+Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **pipeline** (che rappresenta il nuovo approccio a doppio buffer con I/O asincrono). Il numero `MERGE_FAN` per via del pipeline/flat attuale viene stampato come `non usato`.
+
+Tutti i log si trovano nella cartella `results/logs`. Qui è possibile leggere la scomposizione per "Fase 1 (sort)" e "Fase 2 (merge)".
 
 ## Preparazione
 

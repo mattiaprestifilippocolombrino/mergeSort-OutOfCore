@@ -58,7 +58,10 @@ run_impl() {
 
     if [[ "$impl" == "omp" ]]; then
         local omp_merge_args=()
-        if [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
+        if [[ "${OMP_PIPELINE:-0}" == "1" ]]; then
+            omp_merge_args+=(--pipeline-merge)
+            merge_impl="omp_pipeline"
+        elif [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
             omp_merge_args+=(--legacy-merge)
             merge_impl="omp_legacy"
         else
@@ -77,7 +80,10 @@ run_impl() {
         fi
     else
         local ff_merge_args=()
-        if [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
+        if [[ "${FF_PIPELINE:-0}" == "1" ]]; then
+            ff_merge_args+=(--pipeline-merge)
+            merge_impl="ff_pipeline"
+        elif [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
             ff_merge_args+=(--legacy-merge)
             merge_impl="ff_legacy"
         else

@@ -10,6 +10,7 @@
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
 //   --merge-fan N     Fan-in massimo solo per --legacy-merge (default: 64)
 //   --legacy-merge    Usa il vecchio merge multi-pass a livelli
+//   --pipeline-merge  Usa il merge in pipeline I/O asincrona (raccomandato)
 //   --keep-runs       Non eliminare i file di run dopo il merge (debug)
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,9 +31,10 @@
 //   FastFlow bilancia automaticamente il carico con la coda SPSC lock-free.
 //   I Worker ordinano il chunk e scrivono la run su disco.
 //
-// FASE 2  —  ff_kway_merge()   [ff_kway_merger.hpp]
-//   Identica struttura multi-pass della versione OMP, ma usa ff::ParallelFor
-//   al posto di #pragma omp task: nessun conflitto di CPU affinity con la farm.
+// FASE 2  —  selezione dell'algoritmo di merge [tre implementazioni]:
+//   flat (default)    [ff_kway_merger.hpp]          — due stadi, stage 2 seriale
+//   legacy            [ff_kway_merger.hpp]          — multi-pass a livelli
+//   pipeline          [ff_kway_merger_pipeline.hpp] — I/O asincrona (raccomandato)
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // DIFFERENZA RISPETTO ALLA VERSIONE OMP
@@ -46,8 +48,9 @@
 //
 // =============================================================================
 
-#include "ff_chunk_sorter.hpp"  // ff_sort_to_runs()
-#include "ff_kway_merger.hpp"    // ff_kway_merge()
+#include "ff_chunk_sorter.hpp"          // ffSortToRuns()
+#include "ff_kway_merger.hpp"           // ffKwayMerge(), ffKwayMergeLegacy()
+#include "ff_kway_merger_pipeline.hpp" // ffKwayMergePipeline() — I/O asincrono
 #include "temp_dir.hpp"
 
 #include <ff/ff.hpp>
@@ -69,6 +72,7 @@ static void usage(const char* prog) {
               << "  --tmp-dir   PATH  Directory file temporanei   (default: /tmp)\n"
               << "  --merge-fan N     Fan-in solo legacy merge    (default: 64)\n"
               << "  --legacy-merge    Usa il vecchio merge multi-pass a livelli\n"
+              << "  --pipeline-merge  Pipeline I/O asincrona — raccomandato\n"
               << "  --keep-runs       Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -84,9 +88,10 @@ int main(int argc, char* argv[]) {
     std::string outputPath = argv[2];
     std::string tmpDir     = "/tmp";
     size_t      chunkMb    = 256;
-    int         mergeFan   = 64;
-    bool        keepRuns   = false;
-    bool        legacyMerge = false;
+    int         mergeFan    = 64;
+    bool        keepRuns    = false;
+    bool        legacyMerge  = false;
+    bool        pipelineMerge = false;  // --pipeline-merge: I/O asincrona
 
     // ff_numCores() restituisce il numero di core logici disponibili.
     // Riservo 1 core per l'Emitter, assegno gli altri ai Worker.
@@ -107,7 +112,11 @@ int main(int argc, char* argv[]) {
         } else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
         } else if (a == "--legacy-merge") {
-            legacyMerge = true;
+            legacyMerge   = true;
+            pipelineMerge = false;
+        } else if (a == "--pipeline-merge") {
+            pipelineMerge = true;
+            legacyMerge   = false;
         } else if (a == "--keep-runs") {
             keepRuns = true;
         } else {
@@ -130,7 +139,9 @@ int main(int argc, char* argv[]) {
               << "  output       : " << outputPath    << "\n"
               << "  chunk        : " << chunkMb       << " MB\n"
               << "  workers      : " << nWorkers       << "\n"
-              << "  merge impl   : " << (legacyMerge ? "legacy multi-pass" : "flat two-stage") << "\n"
+              << "  merge impl   : " << (pipelineMerge ? "pipeline async I/O" :
+                                          legacyMerge  ? "legacy multi-pass"  :
+                                                         "flat two-stage")     << "\n"
               << "  merge fan-in : " << (legacyMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
@@ -162,10 +173,14 @@ int main(int argc, char* argv[]) {
     // ff_kway_merge usa ff::ParallelFor internamente: nessun conflitto di
     // CPU affinity con la farm usata nella Fase 1. Un solo runtime FF.
     bool deleteRuns = !keepRuns;
-    if (legacyMerge) {
+    if (pipelineMerge) {
+        // Pipeline I/O asincrona: Reader a blocchi + Merger in RAM + Writer asincrono.
+        // Stessa primitiva della versione OMP. Nessun conflitto di affinità FF.
+        ffKwayMergePipeline(runs, outputPath, nWorkers, deleteRuns);
+    } else if (legacyMerge) {
         ffKwayMergeLegacy(runs, outputPath, nWorkers, mergeFan, deleteRuns);
     } else {
-        ffKwayMerge(runs, outputPath, nWorkers, deleteRuns);   // Chiama la funzione ff_kway_merge per fondere le run in un unico file di output.
+        ffKwayMerge(runs, outputPath, nWorkers, deleteRuns);
     }
 
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();   // Fine a contare il tempo.

@@ -78,7 +78,8 @@ echo "=== OpenMP version ==="
     "$BUILD_DIR/omp_sort" "$INPUT" "$OUT_OMP" \
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
-    --tmp-dir "$RUN_DIR"
+    --tmp-dir "$RUN_DIR" \
+    --pipeline-merge
 
 "$BUILD_DIR/verify" "$INPUT" "$OUT_OMP"
 rm -f "$OUT_OMP"
@@ -90,7 +91,8 @@ if [[ -x "$BUILD_DIR/ff_sort" ]]; then
         "$BUILD_DIR/ff_sort" "$INPUT" "$OUT_FF" \
         --chunk-mb "$CHUNK_MB" \
         --workers "$THREADS" \
-        --tmp-dir "$RUN_DIR"
+        --tmp-dir "$RUN_DIR" \
+        --pipeline-merge
 
     "$BUILD_DIR/verify" "$INPUT" "$OUT_FF"
     rm -f "$OUT_FF"
@@ -115,7 +117,8 @@ fi
     "$BUILD_DIR/mpi_sort" "$MPI_INPUT" "$OUT_MPI" \
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
-    --tmp-dir "$RUN_DIR"
+    --tmp-dir "$RUN_DIR" \
+    --pipeline-local-merge
 
 "$BUILD_DIR/verify" "$MPI_INPUT" "$OUT_MPI"
 rm -f "$OUT_MPI"

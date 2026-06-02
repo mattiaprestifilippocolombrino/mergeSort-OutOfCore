@@ -45,21 +45,21 @@ run_test() {
 }
 
 # --- TEST 1: OpenMP ---
-run_test "OpenMP (Shared Memory Tasks)" \
-    "./build/omp_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $THREADS --tmp-dir $TMP_DIR"
+run_test "OpenMP (Shared Memory Tasks + Pipeline I/O)" \
+    "./build/omp_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $THREADS --tmp-dir $TMP_DIR --pipeline-merge"
 
 # --- TEST 2: FastFlow ---
-run_test "FastFlow (Farm + ParallelFor)" \
-    "./build/ff_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --workers $THREADS --tmp-dir $TMP_DIR"
+run_test "FastFlow (Farm + ParallelFor + Pipeline I/O)" \
+    "./build/ff_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --workers $THREADS --tmp-dir $TMP_DIR --pipeline-merge"
 
 # --- TEST 3: MPI (2 Rank) ---
 # Simuliamo un ambiente distribuito su macchina locale con 2 processi MPI
-run_test "MPI (Distributed - 2 Processi, $((THREADS/2)) threads ciascuno)" \
-    "mpirun --oversubscribe -n 2 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/2)) --tmp-dir $TMP_DIR"
+run_test "MPI (Distributed - 2 Processi, $((THREADS/2)) threads ciascuno, Pipeline locale)" \
+    "mpirun --oversubscribe -n 2 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/2)) --tmp-dir $TMP_DIR --pipeline-local-merge"
 
 # --- TEST 4: MPI (4 Rank) ---
-run_test "MPI (Distributed - 4 Processi, $((THREADS/4)) threads ciascuno)" \
-    "mpirun --oversubscribe -n 4 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/4)) --tmp-dir $TMP_DIR"
+run_test "MPI (Distributed - 4 Processi, $((THREADS/4)) threads ciascuno, Pipeline locale)" \
+    "mpirun --oversubscribe -n 4 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/4)) --tmp-dir $TMP_DIR --pipeline-local-merge"
 
 echo -e "\n=== Benchmark completato! ==="
 rm -f $INPUT_FILE

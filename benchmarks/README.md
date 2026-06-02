@@ -4,11 +4,8 @@ Questa cartella contiene gli script per misurare speedup, efficiency, strong sca
 
 La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
-## Perche' il tuning ora e' piccolo
-
-La versione nuova usa il merge flat basato su `mergePass()`: ogni thread fonde un gruppo di run e il thread principale fa il merge finale degli intermedi. In questa versione `MERGE_FAN` non e' piu' una variabile prestazionale, resta solo per confrontare la modalita' legacy.
-
-Il tuning finale quindi prova solo poche dimensioni di chunk su `manySmall50M`:
+### Latenza Nascosta con Pipeline Asincrona (Nuova Versione Standard)
+La versione standard usa il merge a **pipeline asincrona**: ogni thread OMP, FastFlow o MPI usa una coda a doppio buffer (`pipelineMergePass()`) in cui un Thread asincrono scrive su disco sequenzialmente chunk da 32MB mentre la CPU scorre l'heap in RAM e il disco carica blocchi grandi in memoria. In questa architettura il disco è costantemente in funzione alla sua banda sequenziale massima, nascondendo la lentezza dei flush. Il multi-pass `legacy` è disabilitato e conservato solo per scopo comparativo impostando la variabile ambiente associata. dimensioni di chunk su `manySmall50M`:
 
 ```text
 slurm_tune_single_node.sbatch
@@ -162,7 +159,7 @@ VERIFY=0
 RUN_TIMEOUT_SECONDS=180
 ```
 
-`MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
+`MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione pipeline/flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
 
 I file temporanei dei sorter vengono passati con `--tmp-dir` e finiscono sotto
 `TMP_BASE`. Anche i dataset generati dai benchmark usano `DATA_DIR`, che di

@@ -96,13 +96,25 @@ endif()
 
 add_custom_target(run_test_omp
     DEPENDS omp_sort generate verify
-    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP - 500k record ==="
-    COMMAND ./generate /tmp/test_input.bin 500000 --payload-max 256
+    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP flat - 500k record ==="
+    COMMAND ./generate /tmp/test_input.bin 500000 --payload-max 64
     COMMAND ./omp_sort  /tmp/test_input.bin /tmp/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir /tmp
     COMMAND ./verify    /tmp/test_input.bin /tmp/test_output_omp.bin
     COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input.bin /tmp/test_output_omp.bin
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Test correttezza OMP..."
+    COMMENT "Test correttezza OMP flat..."
+)
+
+add_custom_target(run_test_omp_pipeline
+    DEPENDS omp_sort generate verify
+    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP pipeline-merge - 500k record ==="
+    COMMAND ./generate /tmp/test_input_omp_pipe.bin 500000 --payload-max 64
+    COMMAND ./omp_sort  /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
+                        --chunk-mb 32 --threads 4 --tmp-dir /tmp --pipeline-merge
+    COMMAND ./verify    /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
+    COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Test correttezza OMP pipeline-merge (asincrono)..."
 )
 
 if(FF_FOUND)
@@ -114,7 +126,19 @@ if(FF_FOUND)
         COMMAND ./verify    /tmp/test_input_ff.bin /tmp/test_output_ff.bin
         COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_ff.bin /tmp/test_output_ff.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Test correttezza FastFlow..."
+        COMMENT "Test correttezza FF flat..."
+    )
+
+    add_custom_target(run_test_ff_pipeline
+        DEPENDS ff_sort generate verify
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Test FF pipeline-merge - 500k record ==="
+        COMMAND ./generate /tmp/test_input_ff_pipe.bin 500000 --payload-max 64
+        COMMAND ./ff_sort   /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
+                            --chunk-mb 32 --workers 4 --tmp-dir /tmp --pipeline-merge
+        COMMAND ./verify    /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
+        COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Test correttezza FF pipeline-merge (asincrono)..."
     )
 endif()
 
@@ -131,4 +155,4 @@ if(MPI_CXX_FOUND)
     )
 endif()
 
-add_custom_target(run_test DEPENDS run_test_omp)
+add_custom_target(run_test DEPENDS run_test_omp run_test_omp_pipeline)

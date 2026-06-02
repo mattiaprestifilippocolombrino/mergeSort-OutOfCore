@@ -23,6 +23,8 @@
 //   --merge-fan N     Fan-in massimo del K-way merge locale legacy (default: 64)
 //   --legacy-local-merge
 //                     Usa il merge locale multi-pass storico dentro ogni rank
+//   --pipeline-local-merge
+//                     Usa la pipeline I/O asincrona per il merge locale (default)
 //
 // =============================================================================
 // ARCHITETTURA DISTRIBUITA
@@ -83,6 +85,8 @@
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
 #include "omp_kway_merger.hpp"
+#include "omp_kway_merger_pipeline.hpp"  // ompKwayMergePipeline() — usa pipeline locale
+#include "pipeline_merge_pass.hpp"        // pipelineMergePass() — I/O asincrona
 #include "temp_dir.hpp"
 
 // Librerie di parallelismo e sistema:
@@ -119,7 +123,9 @@ static void usage(const char* prog) {
               << "  --tmp-dir   PATH  Directory temporanea (default: /tmp)\n"
               << "  --merge-fan N     Fan-in K-way merge locale legacy (default: 64)\n"
               << "  --legacy-local-merge\n"
-              << "                    Usa il merge locale multi-pass storico dentro ogni rank\n";
+              << "                    Usa il merge locale multi-pass storico dentro ogni rank\n"
+              << "  --pipeline-local-merge\n"
+              << "                    Usa la pipeline I/O asincrona per il merge locale (default)\n";
     std::exit(1);
 }
 
@@ -410,8 +416,9 @@ int main(
     std::string tmpDir     = "/tmp";  // Directory base per i file temporanei
     size_t      chunkMb    = 256;     // Dimensione massima in MB per ogni chunk da ordinare localmente
     int         nThreads   = omp_get_max_threads(); // Numero di thread OpenMP da usare
-    int         mergeFan   = 64;      // Numero massimo K di passate per i merge interni legacy di ogni rank
-    bool        legacyLocalMerge = false; // Se true usa il merge locale multi-pass storico dentro ogni rank
+    int         mergeFan   = 64;      // Numero massimo K di passate per i merge interni legacy
+    bool        legacyLocalMerge    = false;
+    bool        pipelineLocalMerge  = true;  // Default: pipeline I/O asincrona
 
     // Ciclo di parsing dei flag opzionali e assegnamento
     for (int i = 3; i < argc; ++i) {
@@ -420,7 +427,14 @@ int main(
         else if (a == "--threads"   && i + 1 < argc) nThreads = std::stoi(argv[++i]);
         else if (a == "--tmp-dir"   && i + 1 < argc) tmpDir   = argv[++i];
         else if (a == "--merge-fan" && i + 1 < argc) mergeFan = std::stoi(argv[++i]);
-        else if (a == "--legacy-local-merge") legacyLocalMerge = true;
+        else if (a == "--legacy-local-merge") {
+            legacyLocalMerge   = true;
+            pipelineLocalMerge = false;
+        }
+        else if (a == "--pipeline-local-merge") {
+            pipelineLocalMerge = true;
+            legacyLocalMerge   = false;
+        }
         else {
             if (rank == 0) usage(argv[0]);
             MPI_Finalize();
@@ -448,7 +462,11 @@ int main(
                   << "  ranks    : " << numProcs << "\n"
                   << "  threads  : " << nThreads << "\n"
                   << "  chunk    : " << chunkMb  << " MB\n"
-                  << "  local merge : " << (legacyLocalMerge ? "mpi-local-legacy" : "mpi-local-flat") << "\n"
+                  << "  local merge : "
+                  << (legacyLocalMerge   ? "mpi-local-legacy"   :
+                      pipelineLocalMerge ? "mpi-local-pipeline"  :
+                                           "mpi-local-flat")
+                  << "\n"
                   << "  fan-in   : " << (legacyLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
@@ -499,31 +517,23 @@ int main(
             if (f) std::fclose(f);
 
         } else if (runPaths.size() == 1) {
-            // Se c'è solo un chunk ordinato su file, esegue una rinomina efficiente ed atomica.
             if (std::rename(runPaths[0].c_str(), localSorted.c_str()) != 0)
                 throw std::runtime_error("mpi_sort: rename local_sorted fallito");
 
-        } else {  //Altrimenti, se ci sono più chunk ordinati
+        } else {
             if (legacyLocalMerge) {
-                // Esegue un k-way merge finale sulla serie di file chunk in modo da compattare il tutto.
-                // Si richiede esplicitamente /*parallelMerge=*/false in quanto fare un merge multithread in contemporanea con altri rank ucciderebbe l'IO. Siamo su macchine diverse, quindi si puo abilitare.
+                // Multi-pass storico: conservato per confronto.
                 kwayMerge(runPaths, localSorted, mergeFan,
                           /*deleteRuns=*/true, /*parallelMerge=*/false);
+            } else if (pipelineLocalMerge) {
+                // Pipeline I/O asincrona (default): Reader a blocchi + Writer thread.
+                // Ogni rank lavora sul proprio disco locale: zero contesa tra rank.
+                // ompKwayMergePipeline usa OMP per il livello 1 se ci sono molte run.
+                ompKwayMergePipeline(runPaths, localSorted, /*deleteRuns=*/true);
             } else {
-                /*
-                Merge locale flat dentro il rank.
-                Sul cluster usiamo un rank per nodo: i thread OpenMP del rank
-                possono quindi lavorare sui file temporanei locali del nodo
-                senza competere con altri rank sulla stessa macchina.
-                La funzione usa sempre mergePass():
-                1. divide le run locali in gruppi contigui, uno per thread;
-                2. ogni thread produce un intermedio ordinato;
-                3. il thread principale fonde gli intermedi finali.
-                In questo modo merge_fan non serve nella versione nuova.
-                */
+                // Flat OMP: due stadi. Conservato come alternativa.
                 ompKwayMerge(runPaths, localSorted,
-                             /*deleteRuns=*/true,
-                             /*parallelMerge=*/true);
+                             /*deleteRuns=*/true, /*parallelMerge=*/true);
             }
         }
     }
@@ -626,11 +636,12 @@ int main(
                 const std::string mergedPath =
                     myTmp + "/merged_step" + std::to_string(step) + ".bin";
 
-                // Si utilizza il Kwaymerge, con k=2 vie per fondere il proprio file ordinato con quello ricevuto.
-                kwayMerge({currentFile, recvPath}, mergedPath,
-                          /*mergeFan=*/2,
-                          /*deleteRuns=*/true,  // Elimina automatici file sorgenti completati per non intasare l'hard disk
-                          /*parallelMerge=*/false);
+                // 2-way merge in pipeline: Reader a blocchi + Writer asincrono.
+                // Il merge 2-way tra il file locale e quello ricevuto via MPI
+                // beneficia della pipeline: mentre si scrive l'output, si legge
+                // il prossimo blocco da entrambi i file. Scritture da 32MB max.
+                pipelineMergePass({currentFile, recvPath}, mergedPath,
+                                  /*deleteSource=*/true);
 
                 
                 currentFile = mergedPath;  //Assegna il path del file appena creato come corrente per il prossimo ciclo

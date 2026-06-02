@@ -19,7 +19,7 @@ fi
 write_csv_header "$CSV" \
     "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,local_merge_impl,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
-mpi_local_merge_impl="mpi_local_flat"
+mpi_local_merge_impl="mpi_local_pipeline"
 mpi_local_merge_args=()
 if [[ "${MPI_LEGACY_LOCAL_MERGE:-0}" == "1" ]]; then
     mpi_local_merge_impl="mpi_local_legacy"
