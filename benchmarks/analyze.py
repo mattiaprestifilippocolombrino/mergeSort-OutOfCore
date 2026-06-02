@@ -127,6 +127,12 @@ def add_single_node_metrics(rows: list[dict[str, str]]) -> None:
         add_phase_metrics("total", "avg_total_s", "speedup", "efficiency")
         add_phase_metrics("sort", "avg_sort_s", "sort_speedup", "sort_efficiency")
         add_phase_metrics("merge", "avg_merge_s", "merge_speedup", "merge_efficiency")
+        row["total_speedup"] = row["speedup"]
+        row["total_efficiency"] = row["efficiency"]
+        row["phase1_speedup"] = row["sort_speedup"]
+        row["phase1_efficiency"] = row["sort_efficiency"]
+        row["phase2_speedup"] = row["merge_speedup"]
+        row["phase2_efficiency"] = row["merge_efficiency"]
 
 
 def add_strong_metrics(rows: list[dict[str, str]]) -> None:
@@ -186,6 +192,12 @@ def add_strong_metrics(rows: list[dict[str, str]]) -> None:
         add_phase_metrics("total", "avg_total_s", "strong_speedup", "strong_efficiency")
         add_phase_metrics("sort", "avg_sort_s", "strong_sort_speedup", "strong_sort_efficiency")
         add_phase_metrics("merge", "avg_merge_s", "strong_merge_speedup", "strong_merge_efficiency")
+        row["total_speedup"] = row["strong_speedup"]
+        row["total_efficiency"] = row["strong_efficiency"]
+        row["phase1_speedup"] = row["strong_sort_speedup"]
+        row["phase1_efficiency"] = row["strong_sort_efficiency"]
+        row["phase2_speedup"] = row["strong_merge_speedup"]
+        row["phase2_efficiency"] = row["strong_merge_efficiency"]
 
 
 def add_weak_metrics(rows: list[dict[str, str]]) -> None:
@@ -228,17 +240,26 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
             base_times = {}
             row["baseline_nodes"] = "0"
 
-        def add_phase_efficiency(label: str, avg_key: str, efficiency_key: str) -> None:
+        def add_phase_metrics(label: str, avg_key: str, speedup_key: str, efficiency_key: str) -> None:
             base_time = base_times.get(label, math.nan)
             time = as_float(row, avg_key)
             if math.isfinite(base_time) and base_time > 0 and time > 0:
-                row[efficiency_key] = f"{base_time / time:.9g}"
+                speedup = base_time / time
+                row[speedup_key] = f"{speedup:.9g}"
+                row[efficiency_key] = f"{speedup:.9g}"
             else:
+                row[speedup_key] = "nan"
                 row[efficiency_key] = "nan"
 
-        add_phase_efficiency("total", "avg_total_s", "weak_efficiency")
-        add_phase_efficiency("sort", "avg_sort_s", "weak_sort_efficiency")
-        add_phase_efficiency("merge", "avg_merge_s", "weak_merge_efficiency")
+        add_phase_metrics("total", "avg_total_s", "weak_speedup", "weak_efficiency")
+        add_phase_metrics("sort", "avg_sort_s", "weak_sort_speedup", "weak_sort_efficiency")
+        add_phase_metrics("merge", "avg_merge_s", "weak_merge_speedup", "weak_merge_efficiency")
+        row["total_speedup"] = row["weak_speedup"]
+        row["total_efficiency"] = row["weak_efficiency"]
+        row["phase1_speedup"] = row["weak_sort_speedup"]
+        row["phase1_efficiency"] = row["weak_sort_efficiency"]
+        row["phase2_speedup"] = row["weak_merge_speedup"]
+        row["phase2_efficiency"] = row["weak_merge_efficiency"]
 
 
 def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict[str, str]], weak: list[dict[str, str]]) -> None:

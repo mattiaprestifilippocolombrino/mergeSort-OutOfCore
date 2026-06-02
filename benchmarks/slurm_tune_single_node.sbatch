@@ -42,6 +42,7 @@ export CHUNK_MB_LIST="${CHUNK_MB_LIST:-32 64 128}"
 export MERGE_FAN="${MERGE_FAN:-8}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
+export OMP_PIPELINE="${OMP_PIPELINE:-1}"
 export RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-180}"
 
 ./benchmarks/tune_single_node.sh

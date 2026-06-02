@@ -74,6 +74,14 @@ validate_benchmark_config() {
         return 2
     fi
 
+    local pipeline_read_mb=4
+    local pipeline_read_bytes=$((pipeline_read_mb * 1024 * 1024))
+    if (( min_record_bytes > pipeline_read_bytes )); then
+        log "PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD supera il blocco di lettura pipeline (${pipeline_read_mb}MB)"
+        log "Riduci PAYLOAD_MAX_BUILD o aumenta READ_BLOCK_SIZE in common/include/pipeline_merge_pass.hpp."
+        return 2
+    fi
+
     local threads
     for threads in $THREAD_LIST; do
         require_positive_uint "THREAD_LIST entry" "$threads"
@@ -99,6 +107,54 @@ build_project() {
     fi
     cmake "${cmake_args[@]}"
     cmake --build "$BUILD_DIR" -j "$(available_cpus)"
+}
+
+configured_payload_max() {
+    local cache="$BUILD_DIR/CMakeCache.txt"
+    if [[ ! -r "$cache" ]]; then
+        return 1
+    fi
+
+    awk -F= '
+        /^PAYLOAD_MAX(:[^=]*)?=/ {
+            print $2
+            found = 1
+            exit
+        }
+        END {
+            if (!found) exit 1
+        }
+    ' "$cache"
+}
+
+verify_skipped_build_payload() {
+    local configured
+    if ! configured="$(configured_payload_max)"; then
+        log "SKIP_BUILD=1 ma non trovo PAYLOAD_MAX in $BUILD_DIR/CMakeCache.txt."
+        log "Per i test finali rimuovi SKIP_BUILD=1, oppure ricompila prima con PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD."
+        return 2
+    fi
+
+    require_positive_uint "PAYLOAD_MAX nel CMakeCache" "$configured"
+    if (( configured < PAYLOAD_MAX_BUILD )); then
+        log "SKIP_BUILD=1 non sicuro: build esistente con PAYLOAD_MAX=$configured, richiesto PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD."
+        log "Rimuovi SKIP_BUILD=1 per ricompilare, oppure usa un BUILD_DIR compilato con -DPAYLOAD_MAX=$PAYLOAD_MAX_BUILD."
+        return 2
+    fi
+
+    if (( configured > PAYLOAD_MAX_BUILD )); then
+        log "SKIP_BUILD=1: build con PAYLOAD_MAX=$configured compatibile con PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD."
+    else
+        log "SKIP_BUILD=1: build gia' compatibile con PAYLOAD_MAX=$configured."
+    fi
+}
+
+prepare_build() {
+    if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+        verify_skipped_build_payload
+    else
+        build_project
+    fi
 }
 
 available_cpus() {

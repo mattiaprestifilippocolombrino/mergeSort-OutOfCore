@@ -7,9 +7,7 @@ CSV="${1:-$RESULTS_DIR/mpi_strong_raw.csv}"
 
 validate_benchmark_config
 
-if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-    build_project
-fi
+prepare_build
 
 if [[ ! -x "$BUILD_DIR/mpi_sort" ]]; then
     log "mpi_sort non presente: MPI non trovato in fase di build."

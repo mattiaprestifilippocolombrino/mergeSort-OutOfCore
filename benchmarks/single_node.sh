@@ -11,9 +11,7 @@ validate_benchmark_config
 mkdir -p "$RUN_ROOT"
 trap 'rm -rf "$RUN_ROOT"' EXIT
 
-if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-    build_project
-fi
+prepare_build
 
 write_csv_header "$CSV" \
     "suite,impl,merge_impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
@@ -58,14 +56,14 @@ run_impl() {
 
     if [[ "$impl" == "omp" ]]; then
         local omp_merge_args=()
-        if [[ "${OMP_PIPELINE:-0}" == "1" ]]; then
-            omp_merge_args+=(--pipeline-merge)
-            merge_impl="omp_pipeline"
-        elif [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
+        if [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
             omp_merge_args+=(--legacy-merge)
             merge_impl="omp_legacy"
-        else
+        elif [[ "${OMP_FLAT_MERGE:-0}" == "1" || "${OMP_PIPELINE:-1}" != "1" ]]; then
             merge_impl="omp_flat"
+        else
+            omp_merge_args+=(--pipeline-merge)
+            merge_impl="omp_pipeline"
         fi
 
         if ! run_and_capture_sort "$log_file" \
@@ -80,14 +78,14 @@ run_impl() {
         fi
     else
         local ff_merge_args=()
-        if [[ "${FF_PIPELINE:-0}" == "1" ]]; then
-            ff_merge_args+=(--pipeline-merge)
-            merge_impl="ff_pipeline"
-        elif [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
+        if [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
             ff_merge_args+=(--legacy-merge)
             merge_impl="ff_legacy"
-        else
+        elif [[ "${FF_FLAT_MERGE:-0}" == "1" || "${FF_PIPELINE:-1}" != "1" ]]; then
             merge_impl="ff_flat"
+        else
+            ff_merge_args+=(--pipeline-merge)
+            merge_impl="ff_pipeline"
         fi
 
         if ! run_and_capture_sort "$log_file" \

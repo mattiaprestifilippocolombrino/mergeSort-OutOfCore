@@ -5,7 +5,9 @@ Questa cartella contiene gli script per misurare speedup, efficiency, strong sca
 La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
 ### Latenza Nascosta con Pipeline Asincrona (Nuova Versione Standard)
-La versione standard usa il merge a **pipeline asincrona**: ogni thread OMP, FastFlow o MPI usa una coda a doppio buffer (`pipelineMergePass()`) in cui un Thread asincrono scrive su disco sequenzialmente chunk da 32MB mentre la CPU scorre l'heap in RAM e il disco carica blocchi grandi in memoria. In questa architettura il disco è costantemente in funzione alla sua banda sequenziale massima, nascondendo la lentezza dei flush. Il multi-pass `legacy` è disabilitato e conservato solo per scopo comparativo impostando la variabile ambiente associata. dimensioni di chunk su `manySmall50M`:
+La versione standard usa il merge a **pipeline asincrona** per OpenMP, FastFlow e MPI. I benchmark single-node passano `--pipeline-merge` di default, mentre i benchmark MPI usano il merge locale pipeline di default. Il merge `flat` e il multi-pass `legacy` restano disponibili solo per confronti espliciti con `OMP_FLAT_MERGE=1`, `FF_FLAT_MERGE=1`, `OMP_LEGACY_MERGE=1`, `FF_LEGACY_MERGE=1` o `MPI_LEGACY_LOCAL_MERGE=1`.
+
+La pipeline usa `pipelineMergePass()`: un writer asincrono scrive su disco blocchi sequenziali da 32MB mentre la CPU scorre l'heap in RAM e i reader caricano blocchi grandi. In questa architettura il disco resta vicino alla banda sequenziale e la latenza dei flush viene nascosta. Il tuning finale prova poche dimensioni di chunk su `manySmall50M`:
 
 ```text
 slurm_tune_single_node.sbatch
@@ -51,13 +53,20 @@ Si misura separatamente:
 Metriche:
 
 ```text
-speedup = T_1 / T_p
-efficiency = speedup / p
+T_seq              = tempo della versione a 1 thread/worker
+T_n                = tempo della versione con n thread/worker
+total_speedup      = T_seq_total / T_n_total
+total_efficiency   = total_speedup / n
+phase1_speedup     = T_seq_fase1 / T_n_fase1
+phase1_efficiency  = phase1_speedup / n
+phase2_speedup     = T_seq_fase2 / T_n_fase2
+phase2_efficiency  = phase2_speedup / n
 ```
 
-Il summary CSV include anche le stesse metriche calcolate sulle singole fasi:
+Il summary CSV mantiene anche gli alias storici usati dai grafici:
 
 ```text
+speedup, efficiency
 sort_speedup, sort_efficiency
 merge_speedup, merge_efficiency
 ```
@@ -157,9 +166,18 @@ PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 RUN_TIMEOUT_SECONDS=180
+OMP_PIPELINE=1
+FF_PIPELINE=1
 ```
 
 `MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione pipeline/flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
+La validazione degli script assume `READ_BLOCK_SIZE=4MB` dalla pipeline C++ e blocca campagne con record massimi piu' grandi del blocco di lettura.
+
+Per i test finali con payload fino a 4096 byte lascia ricompilare gli script,
+cioe' non impostare `SKIP_BUILD=1`. Se `SKIP_BUILD=1` viene usato per run
+rapide, gli script controllano `BUILD_DIR/CMakeCache.txt` e si fermano se la
+build esistente e' stata compilata con un `PAYLOAD_MAX` piu' piccolo di
+`PAYLOAD_MAX_BUILD`.
 
 I file temporanei dei sorter vengono passati con `--tmp-dir` e finiscono sotto
 `TMP_BASE`. Anche i dataset generati dai benchmark usano `DATA_DIR`, che di

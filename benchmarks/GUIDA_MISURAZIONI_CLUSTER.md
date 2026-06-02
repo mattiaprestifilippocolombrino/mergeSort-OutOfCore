@@ -12,9 +12,29 @@ MERGE_FAN=8
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
+OMP_PIPELINE=1
+FF_PIPELINE=1
 ```
 
-Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **pipeline** (che rappresenta il nuovo approccio a doppio buffer con I/O asincrono). Il numero `MERGE_FAN` per via del pipeline/flat attuale viene stampato come `non usato`.
+Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **pipeline**:
+questo rappresenta il nuovo approccio a doppio buffer con I/O asincrono.
+OpenMP e FastFlow passano `--pipeline-merge` di default; MPI usa il merge
+locale pipeline di default. Il numero `MERGE_FAN` resta nei CSV solo per
+compatibilita' con le run legacy.
+
+Per confronti espliciti con la versione precedente:
+
+```bash
+OMP_FLAT_MERGE=1
+FF_FLAT_MERGE=1
+MPI_LEGACY_LOCAL_MERGE=1
+```
+
+Per le misure finali con `PAYLOAD_MAX_BUILD=4096` non impostare
+`SKIP_BUILD=1`: gli script devono ricompilare con lo stesso valore. `SKIP_BUILD=1`
+va bene solo per run rapide quando sei sicuro che `BUILD_DIR` sia gia' stato
+configurato con un `PAYLOAD_MAX` almeno pari a `PAYLOAD_MAX_BUILD`; in caso
+contrario gli script ora bloccano la run leggendo `BUILD_DIR/CMakeCache.txt`.
 
 Tutti i log si trovano nella cartella `results/logs`. Qui è possibile leggere la scomposizione per "Fase 1 (sort)" e "Fase 2 (merge)".
 
@@ -84,30 +104,44 @@ solo tempo di `std::sort`.
 Single-node:
 
 ```text
-speedup = baseline_total_s / avg_total_s
-efficiency = speedup / threads
-sort_speedup = baseline_sort_s / avg_sort_s
-sort_efficiency = sort_speedup / threads
-merge_speedup = baseline_merge_s / avg_merge_s
-merge_efficiency = merge_speedup / threads
+T_seq = tempo della versione a 1 thread/worker
+T_n = tempo della versione con n thread/worker
+total_speedup = T_seq_total / T_n_total
+total_efficiency = total_speedup / n
+phase1_speedup = T_seq_fase1 / T_n_fase1
+phase1_efficiency = phase1_speedup / n
+phase2_speedup = T_seq_fase2 / T_n_fase2
+phase2_efficiency = phase2_speedup / n
 ```
 
 MPI strong:
 
 ```text
-strong_speedup = T_base / T_p
-strong_efficiency = strong_speedup / (nodes / baseline_nodes)
-strong_sort_speedup, strong_sort_efficiency
-strong_merge_speedup, strong_merge_efficiency
+total_speedup = T_base / T_p
+total_efficiency = total_speedup / (nodes / baseline_nodes)
+phase1_speedup, phase1_efficiency
+phase2_speedup, phase2_efficiency
 ```
+
+Per MPI strong `T_base` e' la run con il numero minimo di nodi disponibile
+nella stessa configurazione `threads_per_rank`. Se vuoi uno speedup rispetto
+alla sequenziale pura, confronta con la riga `nodes=1`, `ranks=1`,
+`threads_per_rank=1`.
 
 MPI weak:
 
 ```text
-weak_efficiency = T_base / T_p
-weak_sort_efficiency = sort_base / sort_p
-weak_merge_efficiency = merge_base / merge_p
+total_speedup = T_base / T_p
+total_efficiency = total_speedup
+phase1_speedup = sort_base / sort_p
+phase1_efficiency = phase1_speedup
+phase2_speedup = merge_base / merge_p
+phase2_efficiency = phase2_speedup
 ```
+
+Gli alias storici `speedup`, `efficiency`, `sort_speedup`, `sort_efficiency`,
+`merge_speedup`, `merge_efficiency` restano nei summary single-node per
+compatibilita' con i grafici.
 
 I grafici in `plots/` mostrano insieme total, phase 1 e phase 2.
 
@@ -118,6 +152,7 @@ RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -143,6 +178,7 @@ RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+FF_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
@@ -248,6 +284,39 @@ TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
 
+## Confronto pipeline vs flat
+
+Per verificare che il nuovo merge sia vantaggioso rispetto alla versione flat,
+lancia due job identici cambiando solo la modalita' di merge.
+
+Pipeline OpenMP:
+
+```bash
+RUN_OMP=1 RUN_FF=0 OMP_PIPELINE=1 \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+THREAD_LIST="1 2 4 8 16 32" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+TRIALS=1 VERIFY=0 \
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+```
+
+Flat OpenMP:
+
+```bash
+RUN_OMP=1 RUN_FF=0 OMP_FLAT_MERGE=1 \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+THREAD_LIST="1 2 4 8 16 32" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+TRIALS=1 VERIFY=0 \
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+```
+
+Ripeti lo stesso schema con `RUN_OMP=0 RUN_FF=1`, `FF_PIPELINE=1` e
+`FF_FLAT_MERGE=1` per FastFlow. Nel confronto guarda sia `avg_total_s` sia le
+colonne `total_*`, `phase1_*`, `phase2_*`: su dataset piccoli il flat puo'
+avere overhead minore, mentre la pipeline e' attesa migliore quando la Fase 2
+e' davvero I/O-bound.
+
 ## Rigenerare summary e grafici
 
 ```bash
@@ -265,4 +334,3 @@ PAYLOAD_MAX_BUILD=4096 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:10:00 benchmarks/slurm_tune_single_node.sbatch
 ```
-
