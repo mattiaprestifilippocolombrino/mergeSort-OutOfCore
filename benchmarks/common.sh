@@ -5,17 +5,18 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
-BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
-TMP_BASE="${TMP_BASE:-${SLURM_TMPDIR:-${TMPDIR:-/tmp}}}"
 RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_DIR/benchmark_results}"
 BENCHMARK_RUN_ID="${BENCHMARK_RUN_ID:-${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)_$$}}"
+BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+TMP_BASE="${TMP_BASE:-$SCRATCH_BASE/spm_benchmark_$BENCHMARK_RUN_ID/work}"
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT/run_$BENCHMARK_RUN_ID}"
 LOG_DIR="${LOG_DIR:-$RESULTS_DIR/logs}"
 DATA_DIR="${DATA_DIR:-$TMP_BASE/spm_benchmark_data}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 CHUNK_MB="${CHUNK_MB:-64}"
-MERGE_FAN="${MERGE_FAN:-16}"
+MERGE_FAN="${MERGE_FAN:-64}"
 TRIALS="${TRIALS:-1}"
 VERIFY="${VERIFY:-0}"
 SEED="${SEED:-42}"
@@ -24,7 +25,7 @@ RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-0}"
 # Two intentionally different regimes:
 # - many short records: stresses comparisons, indexing, task scheduling;
 # - fewer large records: stresses I/O bandwidth and payload movement.
-BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
+BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
 
 THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
 MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 16}"
@@ -34,11 +35,26 @@ WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-6250000}"
 WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-64}"
 WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
 
-mkdir -p "$RESULTS_ROOT" "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
-
 log() {
     printf '[bench] %s\n' "$*" >&2
 }
+
+prepare_storage_dirs() {
+    mkdir -p "$RESULTS_ROOT" "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
+
+    if [[ ! -d "$TMP_BASE" || ! -w "$TMP_BASE" ]]; then
+        log "TMP_BASE non scrivibile: $TMP_BASE"
+        log "Su cluster imposta SCRATCH_BASE=/scratch/$USER oppure TMP_BASE su scratch locale del nodo."
+        return 2
+    fi
+
+    if [[ "$TMP_BASE" != /scratch/* ]]; then
+        log "[WARN] TMP_BASE non e' sotto /scratch: $TMP_BASE"
+        log "[WARN] Per misure finali HPC usa scratch locale del nodo, non filesystem condiviso."
+    fi
+}
+
+prepare_storage_dirs
 
 require_uint() {
     local name="$1"
@@ -76,16 +92,6 @@ validate_benchmark_config() {
         log "CHUNK_MB=$CHUNK_MB troppo piccolo per PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD"
         log "Serve almeno $min_record_bytes byte per contenere un record massimo."
         return 2
-    fi
-
-    if [[ "${OMP_PIPELINE:-0}" == "1" || "${FF_PIPELINE:-0}" == "1" || "${MPI_PIPELINE_LOCAL_MERGE:-0}" == "1" ]]; then
-        local pipeline_read_mb=4
-        local pipeline_read_bytes=$((pipeline_read_mb * 1024 * 1024))
-        if (( min_record_bytes > pipeline_read_bytes )); then
-            log "PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD supera il blocco di lettura pipeline (${pipeline_read_mb}MB)"
-            log "Riduci PAYLOAD_MAX_BUILD o aumenta READ_BLOCK_SIZE in common/include/pipeline_merge_pass.hpp."
-            return 2
-        fi
     fi
 
     local threads

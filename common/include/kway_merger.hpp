@@ -305,7 +305,7 @@ inline void kwayMerge(
         return;
     }
 
-    // Blocco che serve a ricavare la cartella in cui si trovano le run temporanee di input: "/tmp/runs/run_0.bin" -> "/tmp/runs"
+    // Blocco che serve a ricavare la cartella in cui si trovano le run temporanee di input: "/scratch/spm/run_0.bin" -> "/scratch/spm"
     // partendo dal path della prima run.
     std::string tmpDir;
     size_t slashPos = runPaths[0].rfind('/');  // Cerca l'ultima occorrenza di '/' nel path della prima run.

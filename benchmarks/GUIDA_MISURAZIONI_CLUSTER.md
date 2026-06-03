@@ -3,6 +3,8 @@
 Questa guida contiene la sequenza consigliata per produrre i risultati finali.
 Ogni job crea una cartella dedicata in `benchmark_results/run_<jobid>/`, con
 CSV, summary, grafici e log separati.
+I file di lavoro e i dataset temporanei stanno sotto `/scratch` e vengono
+rimossi a fine job; imposta `CLEAN_SCRATCH=0` solo per debug.
 
 ## Parametri consigliati
 
@@ -13,16 +15,14 @@ CSV, summary, grafici e log separati.
 > ```bash
 > sbatch benchmarks/slurm_tune_single_node.sbatch
 > ```
-> Sostituisci poi `128` e `16` negli script sottostanti con i valori ottimali ricavati.
+> Sostituisci poi `128` negli script sottostanti con il valore ottimale ricavato. Per ora `MERGE_FAN` resta fissato a `64`.
 
 ```bash
 CHUNK_MB=128    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
-MERGE_FAN=16    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
+MERGE_FAN=64
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
-OMP_PIPELINE=0
-FF_PIPELINE=0
 ```
 
 Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **multipass**:
@@ -32,16 +32,8 @@ FastFlow passano `--multipass-merge` in modo esplicito; MPI usa il merge locale
 multi-pass di default. Il parametro `MERGE_FAN` controlla il fan-in massimo per
 ogni merge.
 
-Per confronti espliciti con le altre versioni:
-
-```bash
-OMP_FLAT_MERGE=1
-FF_FLAT_MERGE=1
-OMP_PIPELINE=1
-FF_PIPELINE=1
-MPI_PIPELINE_LOCAL_MERGE=1
-MPI_FLAT_LOCAL_MERGE=1
-```
+Le versioni pipeline e flat sono materiale legacy: i file sono nelle cartelle
+`legacy` e non sono usati dagli script di misura correnti.
 
 Per le misure finali con `PAYLOAD_MAX_BUILD=4096` non impostare
 `SKIP_BUILD=1`: gli script devono ricompilare con lo stesso valore. `SKIP_BUILD=1`
@@ -162,11 +154,11 @@ I grafici in `plots/` mostrano insieme total, phase 1 e phase 2.
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Controllo:
@@ -187,13 +179,13 @@ campagna OpenMP.
 
 ```bash
 RUN_OMP=0 RUN_FF=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-RUN_TIMEOUT_SECONDS=180 \
+RUN_TIMEOUT_SECONDS=900 \
 FF_ROOT="$HOME/fastFlow" \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Controllo:
@@ -213,9 +205,9 @@ non e' valida: conserva il log e commentalo.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
 
 Controllo:
@@ -228,18 +220,33 @@ ls -lh "$RUN_DIR/logs"
 
 ## MPI strong scaling
 
-Dataset fisso, nodi crescenti. Lo script copia l'input su `/tmp` locale dei
+Dataset fisso, nodi crescenti. Lo script copia l'input su `/scratch` locale dei
 nodi usati prima del sorter; questa copia non entra nei tempi.
+
+Job 1, nodi 1 e 2:
 
 ```bash
 RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-STRONG_NODES="1 2 4 8" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+STRONG_NODES="1 2" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+sbatch --nodes=2 --time=00:25:00 benchmarks/slurm_mpi_scaling.sbatch
+```
+
+Job 2, nodi 4 e 8:
+
+```bash
+RUN_STRONG=1 RUN_WEAK=0 \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+STRONG_NODES="4 8" \
+RANKS_PER_NODE=1 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+TRIALS=1 VERIFY=0 \
+sbatch --nodes=8 --time=00:25:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
 Controllo:
@@ -258,18 +265,33 @@ distribuito e comunicazione limitano lo speedup.
 
 ## MPI weak scaling
 
-Il lavoro cresce con i nodi: `6.25M` record per nodo, quindi `50M` record a 8
+Il lavoro cresce con i nodi: `2.5M` record per nodo, quindi `20M` record a 8
 nodi.
+
+Job 1, nodi 1 e 2:
 
 ```bash
 RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall6250k:6250000:64" \
-STRONG_NODES="1 2 4 8" \
+WEAK_CASES="weakSmall2500k:2500000:64" \
+STRONG_NODES="1 2" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+```
+
+Job 2, nodi 4 e 8:
+
+```bash
+RUN_STRONG=0 RUN_WEAK=1 \
+WEAK_CASES="weakSmall2500k:2500000:64" \
+STRONG_NODES="4 8" \
+RANKS_PER_NODE=1 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+TRIALS=1 VERIFY=0 \
+sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
 Controllo:
@@ -290,54 +312,15 @@ La verifica va tenuta fuori dai benchmark finali e fatta su una run piccola.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
 
-## Confronto multi-pass vs pipeline vs flat
+## Varianti legacy
 
-Per verificare che pipeline o flat siano vantaggiosi rispetto allo standard,
-lancia job identici cambiando solo la modalita' di merge.
-
-Multi-pass OpenMP standard:
-
-```bash
-RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-Pipeline OpenMP:
-
-```bash
-RUN_OMP=1 RUN_FF=0 OMP_PIPELINE=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-Flat OpenMP:
-
-```bash
-RUN_OMP=1 RUN_FF=0 OMP_FLAT_MERGE=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-Ripeti lo stesso schema con `RUN_OMP=0 RUN_FF=1`, `FF_PIPELINE=1` e
-`FF_FLAT_MERGE=1` per FastFlow. Nel confronto guarda sia `avg_total_s` sia le
-colonne `total_*`, `phase1_*`, `phase2_*`: su dataset piccoli il flat puo'
-avere overhead minore, mentre la pipeline e' attesa migliore quando la Fase 2
-e' davvero I/O-bound.
+Le vecchie varianti pipeline e flat non sono piu' parte della campagna attiva.
+Restano archiviate nelle cartelle `legacy` per consultazione storica.
 
 ## Rigenerare summary e grafici
 
@@ -348,11 +331,12 @@ python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 
 ## Tuning opzionale (Grid Search)
 
-Per trovare la migliore combinazione di parametri (chunk size e merge fan) prima delle misurazioni vere e proprie sul cluster, usa il job di tuning:
+Per trovare la migliore combinazione di `CHUNK_MB` e `MERGE_FAN`, usa la guida
+dedicata:
 
-```bash
-cd ~/spmProject
-sbatch benchmarks/slurm_tune_single_node.sbatch
+```text
+benchmarks/GUIDA_TUNING_OPENMP.md
 ```
 
-Lo script invierà un job Slurm che testa le varie combinazioni in autonomia, fornendoti un resoconto finale `single_node_tuning_raw.csv` e plottando i risultati migliori.
+Il tuning usa solo OpenMP e propone piu' job brevi invece di una singola grid
+search lunga.

@@ -55,17 +55,8 @@ run_impl() {
     local log_file="$LOG_DIR/${impl}_${case}_t${threads}_i${trial}${log_suffix}.log"
 
     if [[ "$impl" == "omp" ]]; then
-        local omp_merge_args=()
-        if [[ "${OMP_PIPELINE:-0}" == "1" ]]; then
-            omp_merge_args+=(--pipeline-merge)
-            merge_impl="omp_pipeline"
-        elif [[ "${OMP_FLAT_MERGE:-0}" == "1" ]]; then
-            omp_merge_args+=(--flat-merge)
-            merge_impl="omp_flat"
-        else
-            omp_merge_args+=(--multipass-merge)
-            merge_impl="omp_multipass"
-        fi
+        local omp_merge_args=(--multipass-merge)
+        merge_impl="omp_multipass"
 
         if ! run_and_capture_sort "$log_file" \
             run_single_benchmark "$threads" "$BUILD_DIR/omp_sort" "$input" "$output" \
@@ -78,17 +69,8 @@ run_impl() {
             return 1
         fi
     else
-        local ff_merge_args=()
-        if [[ "${FF_PIPELINE:-0}" == "1" ]]; then
-            ff_merge_args+=(--pipeline-merge)
-            merge_impl="ff_pipeline"
-        elif [[ "${FF_FLAT_MERGE:-0}" == "1" ]]; then
-            ff_merge_args+=(--flat-merge)
-            merge_impl="ff_flat"
-        else
-            ff_merge_args+=(--multipass-merge)
-            merge_impl="ff_multipass"
-        fi
+        local ff_merge_args=(--multipass-merge)
+        merge_impl="ff_multipass"
 
         if ! run_and_capture_sort "$log_file" \
             run_single_benchmark "$threads" "$BUILD_DIR/ff_sort" "$input" "$output" \

@@ -20,6 +20,7 @@ endif()
 
 # ─── Include directories ──────────────────────────────────────────────────────
 include_directories(common/include fastflow/include)
+set(SPM_TEST_SCRATCH "/scratch/$ENV{USER}/spm_tests" CACHE PATH "Directory scratch per i test manuali")
 
 # ─── OpenMP ───────────────────────────────────────────────────────────────────
 find_package(OpenMP REQUIRED)
@@ -58,7 +59,44 @@ find_package(MPI)
 if(MPI_CXX_FOUND)
     message(STATUS "MPI trovato: ${MPI_CXX_COMPILER}")
 else()
-    message(WARNING "MPI non trovato. mpi_sort non sarà compilato.")
+    find_path(SPM_MPI_INCLUDE_DIR mpi.h
+        PATHS
+            /usr/lib/x86_64-linux-gnu/openmpi/include
+            /usr/include/openmpi-x86_64
+            /usr/local/include
+            /usr/include
+    )
+    find_library(SPM_MPI_LIBRARY mpi
+        PATHS
+            /usr/lib/x86_64-linux-gnu/openmpi/lib
+            /usr/lib64/openmpi/lib
+            /usr/local/lib
+            /usr/lib
+    )
+    find_library(SPM_MPI_CXX_LIBRARY mpi_cxx
+        PATHS
+            /usr/lib/x86_64-linux-gnu/openmpi/lib
+            /usr/lib64/openmpi/lib
+            /usr/local/lib
+            /usr/lib
+    )
+
+    if(SPM_MPI_INCLUDE_DIR AND SPM_MPI_LIBRARY)
+        message(WARNING "FindMPI non ha validato MPI, uso fallback OpenMPI: ${SPM_MPI_INCLUDE_DIR}")
+        if(NOT TARGET MPI::MPI_CXX)
+            add_library(MPI::MPI_CXX INTERFACE IMPORTED)
+        endif()
+        target_include_directories(MPI::MPI_CXX INTERFACE ${SPM_MPI_INCLUDE_DIR})
+        if(SPM_MPI_CXX_LIBRARY)
+            target_link_libraries(MPI::MPI_CXX INTERFACE ${SPM_MPI_CXX_LIBRARY})
+        endif()
+        target_link_libraries(MPI::MPI_CXX INTERFACE ${SPM_MPI_LIBRARY})
+        set(MPI_CXX_FOUND TRUE)
+        set(MPIEXEC_EXECUTABLE mpiexec)
+        set(MPIEXEC_NUMPROC_FLAG -n)
+    else()
+        message(WARNING "MPI non trovato. mpi_sort non sarà compilato.")
+    endif()
 endif()
 
 # =============================================================================
@@ -97,48 +135,26 @@ endif()
 add_custom_target(run_test_omp
     DEPENDS omp_sort generate verify
     COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP multi-pass - 500k record ==="
-    COMMAND ./generate /tmp/test_input.bin 500000 --payload-max 64
-    COMMAND ./omp_sort  /tmp/test_input.bin /tmp/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir /tmp --multipass-merge --merge-fan 16
-    COMMAND ./verify    /tmp/test_input.bin /tmp/test_output_omp.bin
-    COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input.bin /tmp/test_output_omp.bin
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
+    COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input.bin 500000 --payload-max 64
+    COMMAND ./omp_sort  ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 64
+    COMMAND ./verify    ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin
+    COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Test correttezza OMP multi-pass..."
-)
-
-add_custom_target(run_test_omp_pipeline
-    DEPENDS omp_sort generate verify
-    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP pipeline-merge - 500k record ==="
-    COMMAND ./generate /tmp/test_input_omp_pipe.bin 500000 --payload-max 64
-    COMMAND ./omp_sort  /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
-                        --chunk-mb 32 --threads 4 --tmp-dir /tmp --pipeline-merge
-    COMMAND ./verify    /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
-    COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_omp_pipe.bin /tmp/test_output_omp_pipe.bin
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Test correttezza OMP pipeline-merge (asincrono)..."
 )
 
 if(FF_FOUND)
     add_custom_target(run_test_ff
         DEPENDS ff_sort generate verify
         COMMAND ${CMAKE_COMMAND} -E echo "=== Test FastFlow multi-pass - 500k record ==="
-        COMMAND ./generate /tmp/test_input_ff.bin 500000 --payload-max 256
-        COMMAND ./ff_sort   /tmp/test_input_ff.bin /tmp/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir /tmp --multipass-merge --merge-fan 16
-        COMMAND ./verify    /tmp/test_input_ff.bin /tmp/test_output_ff.bin
-        COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_ff.bin /tmp/test_output_ff.bin
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
+        COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input_ff.bin 500000 --payload-max 256
+        COMMAND ./ff_sort   ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 64
+        COMMAND ./verify    ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin
+        COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         COMMENT "Test correttezza FF multi-pass..."
-    )
-
-    add_custom_target(run_test_ff_pipeline
-        DEPENDS ff_sort generate verify
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Test FF pipeline-merge - 500k record ==="
-        COMMAND ./generate /tmp/test_input_ff_pipe.bin 500000 --payload-max 64
-        COMMAND ./ff_sort   /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
-                            --chunk-mb 32 --workers 4 --tmp-dir /tmp --pipeline-merge
-        COMMAND ./verify    /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
-        COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_ff_pipe.bin /tmp/test_output_ff_pipe.bin
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Test correttezza FF pipeline-merge (asincrono)..."
     )
 endif()
 
@@ -146,13 +162,14 @@ if(MPI_CXX_FOUND)
     add_custom_target(run_test_mpi
         DEPENDS mpi_sort generate verify
         COMMAND ${CMAKE_COMMAND} -E echo "=== Test MPI - 500k record, 2 rank ==="
-        COMMAND ./generate /tmp/test_input_mpi.bin 500000 --payload-max 256
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir /tmp --multipass-local-merge --merge-fan 16
-        COMMAND ./verify /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin
-        COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
+        COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input_mpi.bin 500000 --payload-max 256
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-local-merge --merge-fan 64
+        COMMAND ./verify ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin
+        COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         COMMENT "Test correttezza MPI..."
     )
 endif()
 
-add_custom_target(run_test DEPENDS run_test_omp run_test_omp_pipeline)
+add_custom_target(run_test DEPENDS run_test_omp)

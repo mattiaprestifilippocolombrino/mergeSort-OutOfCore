@@ -19,13 +19,6 @@ write_csv_header "$CSV" \
 
 mpi_local_merge_impl="mpi_local_multipass"
 mpi_local_merge_args=(--multipass-local-merge)
-if [[ "${MPI_PIPELINE_LOCAL_MERGE:-0}" == "1" ]]; then
-    mpi_local_merge_impl="mpi_local_pipeline"
-    mpi_local_merge_args=(--pipeline-local-merge)
-elif [[ "${MPI_FLAT_LOCAL_MERGE:-0}" == "1" ]]; then
-    mpi_local_merge_impl="mpi_local_flat"
-    mpi_local_merge_args=(--flat-local-merge)
-fi
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
 case_count="$(wc -w <<<"$BENCHMARK_CASES")"

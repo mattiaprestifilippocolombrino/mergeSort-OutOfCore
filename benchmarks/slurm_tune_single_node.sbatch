@@ -2,7 +2,6 @@
 #SBATCH --job-name=spm_tune_single
 #SBATCH --partition=normal
 #SBATCH --nodes=1
-#SBATCH --nodelist=node01
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:10:00
@@ -14,17 +13,23 @@ set -Eeuo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-LOCAL_TMP="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
-RUN_ROOT="$LOCAL_TMP/$USER/spmRun"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+RUN_ROOT="$SCRATCH_BASE/spmRun/tune"
 export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
 export RESULTS_ROOT="$PROJECT_DIR/benchmark_results"
 export BENCHMARK_RUN_ID="${SLURM_JOB_ID:-localRun}"
 export RESULTS_DIR="$RESULTS_ROOT/run_$BENCHMARK_RUN_ID"
 export LOG_DIR="$RESULTS_DIR/logs"
 export DATA_DIR="$RUN_DIR/data"
-export TMP_BASE="$RUN_DIR/tmp"
+export TMP_BASE="$RUN_DIR/work"
 
 mkdir -p "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
+cleanup_scratch() {
+    if [[ "${CLEAN_SCRATCH:-1}" == "1" && -n "${RUN_DIR:-}" && "$RUN_DIR" == /scratch/* ]]; then
+        rm -rf "$RUN_DIR"
+    fi
+}
+trap cleanup_scratch EXIT
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
 echo "SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-}"
@@ -35,14 +40,14 @@ echo "RESULTS_DIR=$RESULTS_DIR"
 echo "LOG_DIR=$LOG_DIR"
 echo "DATA_DIR=$DATA_DIR"
 echo "TMP_BASE=$TMP_BASE"
+echo "CLEAN_SCRATCH=${CLEAN_SCRATCH:-1}"
 
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-tuneSmall10M:10000000:64}"
 export THREAD_LIST="${THREAD_LIST:-1 32}"
 export CHUNK_MB_LIST="${CHUNK_MB_LIST:-64 128 256}"
-export MERGE_FAN_LIST="${MERGE_FAN_LIST:-8 16 32}"
+export MERGE_FAN_LIST="${MERGE_FAN_LIST:-32 64 128}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
-export OMP_PIPELINE="${OMP_PIPELINE:-0}"
 export RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-180}"
 
 ./benchmarks/tune_single_node.sh

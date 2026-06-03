@@ -7,15 +7,18 @@
 # le performance delle versioni OMP, FastFlow e MPI.
 
 # Impostazioni del test
-INPUT_FILE="/tmp/test_data.bin"
-OUTPUT_FILE="/tmp/sorted_output.bin"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+RUN_DIR="${RUN_DIR:-$SCRATCH_BASE/spm_manual_bench}"
+INPUT_FILE="$RUN_DIR/test_data.bin"
+OUTPUT_FILE="$RUN_DIR/sorted_output.bin"
 RECORDS=5000000        # Circa 1GB di dati (media 200B a record)
 CHUNK_MB=128           # Dimensione chunk (influisce sul numero di run temporanee)
-MERGE_FAN=16           # Fan-in multi-pass: bilancia passate, RAM e file descriptor
+MERGE_FAN=64           # Fan-in multi-pass: bilancia passate, RAM e file descriptor
 THREADS=$(nproc)       # Usa tutti i core disponibili
-TMP_DIR="/tmp"
+TMP_DIR="$RUN_DIR/work"
 
 echo "=== 1. Compilazione del progetto ==="
+mkdir -p "$RUN_DIR" "$TMP_DIR"
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)

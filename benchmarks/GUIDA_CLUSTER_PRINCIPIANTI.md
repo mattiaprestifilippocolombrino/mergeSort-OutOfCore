@@ -90,6 +90,8 @@ I file grandi temporanei non stanno nei risultati: gli script passano
 `--tmp-dir "$TMP_BASE"` ai sorter. I dataset generati per i benchmark stanno in
 `DATA_DIR`, che di default e' sotto `TMP_BASE`, oppure sotto `RUN_DIR/data`
 negli script Slurm single-node.
+Gli script puliscono `RUN_DIR` su `/scratch` a fine job (`CLEAN_SCRATCH=1`).
+Metti `CLEAN_SCRATCH=0` solo se devi ispezionare file temporanei dopo un errore.
 
 Per i benchmark finali con `PAYLOAD_MAX_BUILD=4096` non aggiungere
 `SKIP_BUILD=1` ai comandi: gli script devono ricompilare il progetto con quel
@@ -105,16 +107,8 @@ Gli script usano il merge **multi-pass semplice** come modalita' standard:
 - MPI usa il merge locale multi-pass di default.
 - Il parametro `MERGE_FAN` regola il fan-in del K-way merge multi-pass.
 
-Per confrontare con le altre modalita' puoi impostare:
-
-```bash
-OMP_FLAT_MERGE=1
-FF_FLAT_MERGE=1
-OMP_PIPELINE=1
-FF_PIPELINE=1
-MPI_PIPELINE_LOCAL_MERGE=1
-MPI_FLAT_LOCAL_MERGE=1
-```
+Le vecchie modalita' pipeline e flat sono state spostate nelle cartelle
+`legacy` e non fanno parte dei benchmark correnti.
 
 OpenMP e FastFlow single-node:
 
@@ -198,15 +192,15 @@ Sono equivalenti rispettivamente a totale, fase 1 e fase 2.
 Serve solo a verificare build, esecuzione e verifier.
 
 > [!TIP]
-> **I valori di CHUNK_MB=128 e MERGE_FAN=16 nei comandi seguenti sono puramente indicativi (anche se migliori di quelli vecchi)!**
-> Le prestazioni ottimali dipendono dall'hardware del cluster. Prima di avviare campagne di misurazione lunghe, vedi la sezione **14. Eseguire il Tuning** per lanciare il job di tuning e scoprire i tuoi valori ideali.
+> **Il valore di CHUNK_MB=128 nei comandi seguenti e' indicativo.**
+> Le prestazioni ottimali dipendono dall'hardware del cluster. Per ora `MERGE_FAN` resta fissato a `64`.
 
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -229,9 +223,9 @@ Benchmark principale per speedup ed efficiency su un nodo.
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -256,11 +250,11 @@ Lancialo separato da OpenMP.
 ```bash
 cd ~/spmProject
 RUN_OMP=0 RUN_FF=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-RUN_TIMEOUT_SECONDS=180 \
+RUN_TIMEOUT_SECONDS=900 \
 FF_ROOT="$HOME/fastFlow" \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -277,100 +271,42 @@ tail -n 80 "$RUN_DIR"/logs/ff_*.log
 Se trovi `timeout`, `pthread_create` o errori di worker FastFlow, conserva il
 log e segnala la run come non valida.
 
-## 8 bis. Confrontare multi-pass, pipeline e flat
+## 8 bis. Varianti legacy
 
-Per capire se la pipeline o il flat migliorano rispetto allo standard, fai run
-uguali cambiando solo la variabile di merge.
-
-OpenMP multi-pass standard:
-
-```bash
-cd ~/spmProject
-RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-OpenMP pipeline:
-
-```bash
-cd ~/spmProject
-RUN_OMP=1 RUN_FF=0 OMP_PIPELINE=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-OpenMP flat:
-
-```bash
-cd ~/spmProject
-RUN_OMP=1 RUN_FF=0 OMP_FLAT_MERGE=1 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-Per FastFlow usa `RUN_OMP=0 RUN_FF=1`, poi confronta la run standard contro
-`FF_PIPELINE=1` e `FF_FLAT_MERGE=1`.
-
-Nel confronto guarda:
-
-```text
-avg_total_s
-total_speedup, total_efficiency
-phase1_speedup, phase1_efficiency
-phase2_speedup, phase2_efficiency
-```
-
-Il multi-pass semplice e' il riferimento principale. La pipeline puo' aiutare
-quando la Fase 2 pesa molto, mentre su input piccoli il flat puo' ancora vincere
-per overhead minore.
-
-## 9. Payload distribution
-
-Serve a confrontare molti record piccoli con meno record e payload piu' grande.
-
-```bash
-cd ~/spmProject
-RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
-THREAD_LIST="1 8 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
-```
-
-Controlla:
-
-```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
-cat "$RUN_DIR/single_node_summary.csv"
-ls -lh "$RUN_DIR/logs"
-```
+Pipeline e flat sono archiviate nelle cartelle `legacy`; i benchmark correnti
+misurano solo il multi-pass semplice.
 
 ## 10. MPI strong scaling
 
-Dataset fisso, nodi crescenti. Lo script copia l'input su `/tmp` locale dei
+Dataset fisso, nodi crescenti. Lo script copia l'input su `/scratch` locale dei
 nodi prima della misura, quindi la copia non entra in Fase 1/Fase 2/Totale.
+
+Job 1, nodi 1 e 2:
 
 ```bash
 cd ~/spmProject
 RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-STRONG_NODES="1 2 4 8" \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+STRONG_NODES="1 2" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+```
+
+Job 2, nodi 4 e 8:
+
+```bash
+cd ~/spmProject
+RUN_STRONG=1 RUN_WEAK=0 \
+BENCHMARK_CASES="manySmall20M:20000000:64" \
+STRONG_NODES="4 8" \
+RANKS_PER_NODE=1 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+TRIALS=1 VERIFY=0 \
+sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
 Controlla:
@@ -389,18 +325,34 @@ merge distribuito limitano lo speedup.
 
 ## 11. MPI weak scaling
 
-Il lavoro cresce con i nodi: `6.25M` record per nodo.
+Il lavoro cresce con i nodi: `2.5M` record per nodo.
+
+Job 1, nodi 1 e 2:
 
 ```bash
 cd ~/spmProject
 RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall6250k:6250000:64" \
-STRONG_NODES="1 2 4 8" \
+WEAK_CASES="weakSmall2500k:2500000:64" \
+STRONG_NODES="1 2" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=0 \
-sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+```
+
+Job 2, nodi 4 e 8:
+
+```bash
+cd ~/spmProject
+RUN_STRONG=0 RUN_WEAK=1 \
+WEAK_CASES="weakSmall2500k:2500000:64" \
+STRONG_NODES="4 8" \
+RANKS_PER_NODE=1 \
+MPI_THREAD_LIST="4 16" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+TRIALS=1 VERIFY=0 \
+sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
 
 Controlla:
@@ -422,7 +374,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```

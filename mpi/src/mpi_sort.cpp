@@ -19,16 +19,10 @@
 //
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run locale (default: 256 MB)
 //   --threads   N     Numero di thread OpenMP per rank (default: max hw)
-//   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan N     Fan-in massimo del K-way merge locale (default: 16)
+//   --tmp-dir   PATH  Directory per i file temporanei (default: /scratch)
+//   --merge-fan N     Fan-in massimo del K-way merge locale (default: 64)
 //   --multipass-local-merge
 //                     Usa il merge locale multi-pass semplice dentro ogni rank (default)
-//   --legacy-local-merge
-//                     Alias storico di --multipass-local-merge
-//   --flat-local-merge
-//                     Usa il merge locale flat a due stadi dentro ogni rank
-//   --pipeline-local-merge
-//                     Usa la pipeline I/O asincrona per il merge locale
 //
 // =============================================================================
 // ARCHITETTURA DISTRIBUITA
@@ -84,13 +78,9 @@
 // Moduli del progetto:
 //   chunk_sorter.hpp  -> spezza una stripe in chunk, li ordina e produce run.
 //   kway_merger.hpp   -> fonde run gia' ordinate in modo out-of-core.
-//   omp_kway_merger.hpp -> merge locale flat intra-rank basato su mergePass().
 //   temp_dir.hpp      -> crea e pulisce directory temporanee RAII per rank.
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
-#include "omp_kway_merger.hpp"
-#include "omp_kway_merger_multipass_pipeline.hpp"  // ompKwayMergeMultipassPipeline() — I/O asincrono + safe FD
-#include "pipeline_merge_pass.hpp"        // pipelineMergePass() — I/O asincrona
 #include "temp_dir.hpp"
 
 // Librerie di parallelismo e sistema:
@@ -124,16 +114,10 @@ static void usage(const char* prog) {
     std::cerr << "Utilizzo: mpirun -n P " << prog << " <input> <output> [opzioni]\n"
               << "  --chunk-mb  N     MB per chunk locale (default: 256)\n"
               << "  --threads   N     Thread OpenMP per rank (default: max hw)\n"
-              << "  --tmp-dir   PATH  Directory temporanea (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in per merge locale multi-pass (default: 16)\n"
+              << "  --tmp-dir   PATH  Directory temporanea (default: /scratch)\n"
+              << "  --merge-fan N     Fan-in per merge locale multi-pass (default: 64)\n"
               << "  --multipass-local-merge\n"
-              << "                    Usa il merge locale multi-pass semplice dentro ogni rank (default)\n"
-              << "  --legacy-local-merge\n"
-              << "                    Alias storico di --multipass-local-merge\n"
-              << "  --flat-local-merge\n"
-              << "                    Usa il merge locale flat a due stadi dentro ogni rank\n"
-              << "  --pipeline-local-merge\n"
-              << "                    Usa la pipeline I/O asincrona per il merge locale\n";
+              << "                    Usa il merge locale multi-pass semplice dentro ogni rank (default)\n";
     std::exit(1);
 }
 
@@ -423,13 +407,10 @@ int main(
     std::string outputPath = argv[2]; // File di output
     
     // Variabili per i parametri opzionali configurabili con flag (e relativi default)
-    std::string tmpDir     = "/tmp";  // Directory base per i file temporanei
+    std::string tmpDir     = "/scratch";  // Directory base per i file temporanei
     size_t      chunkMb    = 256;     // Dimensione massima in MB per ogni chunk da ordinare localmente
     int         nThreads   = omp_get_max_threads(); // Numero di thread OpenMP da usare
-    int         mergeFan   = 16;      // Fan-in del merge locale multi-pass
-    bool        multipassLocalMerge = true;  // Default: multi-pass semplice
-    bool        pipelineLocalMerge  = false;
-    bool        mergeFanExplicit    = false;
+    int         mergeFan   = 64;      // Fan-in del merge locale multi-pass
 
     // Ciclo di parsing dei flag opzionali e assegnamento
     for (int i = 3; i < argc; ++i) {
@@ -439,19 +420,9 @@ int main(
         else if (a == "--tmp-dir"   && i + 1 < argc) tmpDir   = argv[++i];
         else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
-            mergeFanExplicit = true;
         }
-        else if (a == "--legacy-local-merge" || a == "--multipass-local-merge") {
-            multipassLocalMerge = true;
-            pipelineLocalMerge = false;
-        }
-        else if (a == "--flat-local-merge") {
-            multipassLocalMerge = false;
-            pipelineLocalMerge = false;
-        }
-        else if (a == "--pipeline-local-merge") {
-            pipelineLocalMerge = true;
-            multipassLocalMerge = false;
+        else if (a == "--multipass-local-merge") {
+            // Default esplicito, accettato per compatibilita' con gli script.
         }
         else {
             if (rank == 0) usage(argv[0]);
@@ -469,10 +440,6 @@ int main(
     omp_set_num_threads(nThreads);  // Imposta il numero di thread OpenMP da usare per questo processo
     const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL; // Converte la dimensione del chunk da MB a byte
 
-    if (pipelineLocalMerge && !mergeFanExplicit) {
-        mergeFan = MULTIPASS_MERGE_FAN_DEFAULT;
-    }
-
     // Crea in RAII una sotto-directory temporanea esclusiva del rank per isolare l'I/O ed evitare collisioni.
     // L'oggetto TempDir rimuove la cartella e i suoi contenuti automaticamente alla distruzione
     TempDir workTmp(tmpDir, "spm_mpi_r" + std::to_string(rank));  // Crea una cartella temporanea per il rank
@@ -484,12 +451,8 @@ int main(
                   << "  ranks    : " << numProcs << "\n"
                   << "  threads  : " << nThreads << "\n"
                   << "  chunk    : " << chunkMb  << " MB\n"
-                  << "  local merge : "
-                  << (multipassLocalMerge ? "mpi-local-multipass" :
-                      pipelineLocalMerge ? "mpi-local-pipeline"  :
-                                           "mpi-local-flat")
-                  << "\n"
-                  << "  fan-in   : " << (multipassLocalMerge || pipelineLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+                  << "  local merge : mpi-local-multipass\n"
+                  << "  fan-in   : " << mergeFan << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
 
@@ -546,20 +509,9 @@ int main(
                 throw std::runtime_error("mpi_sort: rename local_sorted fallito");
 
         } else {
-            if (multipassLocalMerge) {
-                // Multi-pass semplice: default finale per il merge locale.
-                kwayMerge(runPaths, localSorted, mergeFan,
-                          /*deleteRuns=*/true, /*parallelMerge=*/false);
-            } else if (pipelineLocalMerge) {
-                // Pipeline I/O asincrona: Reader a blocchi + Writer thread.
-                // Ogni rank lavora sul proprio disco locale: zero contesa tra rank.
-                // Multipass safe previene crash se il rank locale produce troppe run.
-                ompKwayMergeMultipassPipeline(runPaths, localSorted, mergeFan, /*deleteRuns=*/true);
-            } else {
-                // Flat OMP: due stadi. Conservato come alternativa.
-                ompKwayMerge(runPaths, localSorted,
-                             /*deleteRuns=*/true, /*parallelMerge=*/true);
-            }
+            // Multi-pass semplice: default finale per il merge locale.
+            kwayMerge(runPaths, localSorted, mergeFan,
+                      /*deleteRuns=*/true, /*parallelMerge=*/false);
         }
     }
 
@@ -661,12 +613,9 @@ int main(
                 const std::string mergedPath =
                     myTmp + "/merged_step" + std::to_string(step) + ".bin";
 
-                // 2-way merge in pipeline: Reader a blocchi + Writer asincrono.
-                // Il merge 2-way tra il file locale e quello ricevuto via MPI
-                // beneficia della pipeline: mentre si scrive l'output, si legge
-                // il prossimo blocco da entrambi i file. Scritture da 32MB max.
-                pipelineMergePass({currentFile, recvPath}, mergedPath,
-                                  /*deleteSource=*/true);
+                // Merge 2-way tra il file locale e quello ricevuto via MPI.
+                mergePass({currentFile, recvPath}, mergedPath,
+                          /*deleteSource=*/true);
 
                 
                 currentFile = mergedPath;  //Assegna il path del file appena creato come corrente per il prossimo ciclo

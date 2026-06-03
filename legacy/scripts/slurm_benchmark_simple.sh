@@ -21,12 +21,12 @@ BUILD_DIR="$PROJECT_DIR/build_slurm"
 RECORDS="${RECORDS:-1000000}"
 PAYLOAD_MAX="${PAYLOAD_MAX:-256}"
 CHUNK_MB="${CHUNK_MB:-128}"
-MERGE_FAN="${MERGE_FAN:-16}"
+MERGE_FAN="${MERGE_FAN:-64}"
 THREADS="${SLURM_CPUS_PER_TASK:-16}"
 MPI_RANKS="${SLURM_NTASKS:-2}"
 
-TMP_BASE="${SLURM_TMPDIR:-${TMPDIR:-/tmp}}"
-RUN_DIR="$TMP_BASE/spm_sort_${SLURM_JOB_ID:-manual}"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+RUN_DIR="$SCRATCH_BASE/spm_sort_${SLURM_JOB_ID:-manual}"
 
 INPUT="$RUN_DIR/input.bin"
 MPI_INPUT="$RUN_DIR/input_mpi.bin"
@@ -48,7 +48,7 @@ echo "Chunk MB     : $CHUNK_MB"
 echo "Merge fan    : $MERGE_FAN"
 echo
 
-mkdir -p "$RUN_DIR"
+mkdir -p "$RUN_DIR/work"
 trap 'rm -rf "$RUN_DIR"' EXIT
 
 cd "$PROJECT_DIR"
@@ -80,7 +80,7 @@ echo "=== OpenMP version ==="
     "$BUILD_DIR/omp_sort" "$INPUT" "$OUT_OMP" \
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
-    --tmp-dir "$RUN_DIR" \
+    --tmp-dir "$RUN_DIR/work" \
     --multipass-merge \
     --merge-fan "$MERGE_FAN"
 
@@ -94,7 +94,7 @@ if [[ -x "$BUILD_DIR/ff_sort" ]]; then
         "$BUILD_DIR/ff_sort" "$INPUT" "$OUT_FF" \
         --chunk-mb "$CHUNK_MB" \
         --workers "$THREADS" \
-        --tmp-dir "$RUN_DIR" \
+        --tmp-dir "$RUN_DIR/work" \
         --multipass-merge \
         --merge-fan "$MERGE_FAN"
 
@@ -109,7 +109,7 @@ fi
 
 echo "=== MPI + OpenMP version ==="
 if [[ "${SLURM_JOB_NUM_NODES:-1}" -gt 1 && -n "${SLURM_JOB_ID:-}" && "$(command -v sbcast || true)" ]]; then
-    echo "Broadcast input su /tmp locale dei nodi MPI..."
+    echo "Broadcast input su /scratch locale dei nodi MPI..."
     srun -N "${SLURM_JOB_NUM_NODES:-2}" -n "${SLURM_JOB_NUM_NODES:-2}" --ntasks-per-node=1 \
         mkdir -p "$RUN_DIR"
     sbcast -f "$INPUT" "$MPI_INPUT"
@@ -121,7 +121,7 @@ fi
     "$BUILD_DIR/mpi_sort" "$MPI_INPUT" "$OUT_MPI" \
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
-    --tmp-dir "$RUN_DIR" \
+    --tmp-dir "$RUN_DIR/work" \
     --multipass-local-merge \
     --merge-fan "$MERGE_FAN"
 

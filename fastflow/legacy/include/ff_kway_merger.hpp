@@ -66,7 +66,7 @@ Prende in input il vettore di path delle run da fondere, il path del file di out
 il numero di thread FF da usare nel ParallelFor, quante run vengono fuse per passata e 
 un booleano che indica se i file delle run sorgenti vengono cancellati alla fine.
 */
-inline void ffKwayMergeMultipass(
+inline void ffKwayMergeLegacy(
     const std::vector<std::string>& runPaths,  // Vettore dei path delle run da fondere
     const std::string&              outputPath, // Path del file di output finale
     int                             nWorkers,   // Numero di thread FF da usare nel ParallelFor
@@ -101,7 +101,7 @@ inline void ffKwayMergeMultipass(
     }
 
     // Blocco che ricava la directory temporanea dal path della prima run:
-    // es. "/scratch/spm_ff_123/run_0.bin" → "/scratch/spm_ff_123"
+    // es. "/tmp/spm_ff_123/run_0.bin" → "/tmp/spm_ff_123"
     std::string tmpDir;
     size_t slashPos = runPaths[0].rfind('/');  // Cerca l'ultima occorrenza di '/' nel path della prima run.
     if (slashPos != std::string::npos) {   // Se l'occorrenza viene trovata.
@@ -240,3 +240,163 @@ Le variabili catturate per riferimento sono thread-safe perche':
     }
 }
 
+inline std::string ffMergeParentDir(const std::string& path)
+{
+    size_t slashPos = path.rfind('/');  // Cerca l'ultima occorrenza di '/' nel path della prima run.
+    if (slashPos != std::string::npos) {   // Se l'occorrenza viene trovata.
+        return path.substr(0, slashPos);     // Prende il path della directory temporanea, da inizio stringa all'ultimo slash.
+    }
+    return ".";           // Altrimenti la directory temporanea è la directory corrente.
+}
+
+inline std::string ffFlatMergeTmpPath(const std::string& tmpDir, int workerId)
+{
+    return tmpDir + "/run_ff_flat_" + std::to_string(workerId) + ".bin";
+}
+
+inline std::vector<std::string> ffMergeGroup(
+    const std::vector<std::string>& paths,
+    size_t                          begin,
+    size_t                          end)
+{
+    return std::vector<std::string>(paths.begin() + begin, paths.begin() + end);
+}
+
+/*
+Orchestratore FastFlow del merge flat a due livelli.
+La funzione mergePass() resta l'unica primitiva di fusione: questo mantiene
+un solo punto in cui vive la logica K-way con min-heap e buffer di I/O.
+
+La nuova strategia non usa mergeFan:
+1. Le run vengono divise in blocchi contigui, uno per worker FastFlow.
+2. Ogni worker fonde il suo blocco con mergePass() e produce un file intermedio.
+3. Il thread principale fonde gli intermedi con una mergePass() finale.
+
+Questa struttura riduce il numero di passate su disco a due. Su cluster HPC e'
+vantaggiosa se i file temporanei stanno sullo storage locale del nodo (/tmp o
+SLURM_TMPDIR), perche' il collo di bottiglia diventa la banda sequenziale dei
+file intermedi e non la creazione di molti livelli di merge.
+*/
+inline void ffKwayMerge(
+    const std::vector<std::string>& runPaths,  // Vettore dei path delle run da fondere
+    const std::string&              outputPath, // Path del file di output finale
+    int                             nWorkers,   // Numero di thread FF da usare nel ParallelFor
+    bool                            deleteRuns = true) // Se true, i file delle run sorgenti vengono cancellati alla fine
+{
+    // Se non ci sono run, lancio un errore.
+    if (runPaths.empty()) {
+        throw std::runtime_error("ff_kway_merge: nessuna run");
+    }
+
+    if (nWorkers < 1) {
+        nWorkers = 1;
+    }
+
+    const bool verbose = mergeVerboseEnabled();
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] impl=fastflow-flat initialRuns=%zu workers=%d\n",
+                     runPaths.size(), nWorkers);
+    }
+
+    // Caso banale: run singola, basta rinominare o copiare in O(1).
+    if (runPaths.size() == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=0 runs=1 groups=1 tasks=0 mode=singleRun\n");
+        }
+        moveOrCopyRun(runPaths[0], outputPath, deleteRuns);
+        return;
+    }
+
+    if (nWorkers == 1) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePass\n",
+                         runPaths.size());
+        }
+        mergePass(runPaths, outputPath, deleteRuns);
+        return;
+    }
+
+    const int workers = std::min<int>(nWorkers, static_cast<int>(runPaths.size()));
+
+    /*
+    Soglia HPC per evitare una passata inutile sui dati.
+    Se le run sono poche rispetto ai worker disponibili, il primo livello
+    parallelo produrrebbe gruppi da 1-2 run e il merge finale obbligherebbe a
+    rileggere e riscrivere gli stessi record. In questo caso un singolo
+    mergePass() diretto e' piu' efficiente e piu' stabile.
+    */
+    if (runPaths.size() <= 2 * static_cast<size_t>(workers)) {
+        if (verbose) {
+            std::fprintf(stderr,
+                         "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePassSmallInput workers=%d\n",
+                         runPaths.size(), workers);
+        }
+        mergePass(runPaths, outputPath, deleteRuns);
+        return;
+    }
+
+    const size_t groupSize = (runPaths.size() + static_cast<size_t>(workers) - 1)
+                           / static_cast<size_t>(workers);
+    const std::string tmpDir = ffMergeParentDir(runPaths[0]);
+
+    const int groups = static_cast<int>(
+        (runPaths.size() + groupSize - 1) / groupSize
+    );
+
+    // Preparo solo gli intermedi dei gruppi reali. Quando groupSize e'
+    // arrotondato per eccesso, groups puo' essere minore di workers.
+    std::vector<std::string> intermediateFiles(groups);
+    for (int group = 0; group < groups; group++) {
+        intermediateFiles[group] = ffFlatMergeTmpPath(tmpDir, group);
+    }
+
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] level=1 runs=%zu groups=%d tasks=%d mode=parallelFlat groupSize=%zu\n",
+                     runPaths.size(), groups, groups, groupSize);
+    }
+
+    ff::ParallelFor pf(workers, false);
+    pf.no_mapping();
+    std::atomic<bool> mergeError{false};
+    std::vector<std::exception_ptr> groupErrors(groups);
+
+    /*
+    Ogni iterazione del parallel_for corrisponde a un worker logico.
+    Il worker prende un intervallo contiguo di run gia' ordinate, costruisce
+    il vettore group e chiama mergePass() una sola volta.
+    Gli output sono distinti, quindi non c'e' contesa tra i worker sui file.
+    */
+    pf.parallel_for(0, groups, 1, 0,
+        [&](const long groupIdx) {
+            if (mergeError.load(std::memory_order_relaxed)) return;   // Evito lavori inutili dopo il primo errore.
+
+            const size_t begin = static_cast<size_t>(groupIdx) * groupSize;
+            const size_t end = std::min(begin + groupSize, runPaths.size());
+            if (begin >= end) return;
+
+            try {
+                std::vector<std::string> group = ffMergeGroup(runPaths, begin, end);
+                mergePass(group, intermediateFiles[groupIdx], deleteRuns);
+            } catch (...) {
+                mergeError.store(true, std::memory_order_relaxed);
+                groupErrors[static_cast<size_t>(groupIdx)] = std::current_exception();
+            }
+        }
+    );
+
+    for (const auto& err : groupErrors) {
+        if (err) std::rethrow_exception(err);
+    }
+
+    if (verbose) {
+        std::fprintf(stderr,
+                     "[merge] level=2 runs=%d groups=1 tasks=0 mode=finalMergePass\n",
+                     groups);
+    }
+
+    mergePass(intermediateFiles, outputPath, /*deleteSource=*/true);
+}

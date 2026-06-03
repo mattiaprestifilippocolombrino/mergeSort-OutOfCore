@@ -9,7 +9,7 @@ validate_benchmark_config
 prepare_build
 
 CHUNK_MB_LIST="${CHUNK_MB_LIST:-64 128 256}"
-MERGE_FAN_LIST="${MERGE_FAN_LIST:-8 16 32}"
+MERGE_FAN_LIST="${MERGE_FAN_LIST:-64}"
 
 write_csv_header "$CSV" \
     "suite,impl,merge_impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"
@@ -28,7 +28,6 @@ for chunk in $CHUNK_MB_LIST; do
         LOG_TAG="c${chunk}_f${fan}" \
         RUN_OMP=1 \
         RUN_FF=0 \
-        OMP_PIPELINE=0 \
         APPEND_RESULTS=1 \
         SKIP_BUILD=1 \
         ./benchmarks/single_node.sh "$CSV"

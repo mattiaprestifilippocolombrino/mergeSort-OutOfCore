@@ -35,7 +35,7 @@ fi
 
 # Spazio di esplorazione dei parametri
 CHUNK_SIZES=(64 128 256)
-MERGE_FANS=(8 16 32)
+MERGE_FANS=(64)
 
 # File di report temporaneo
 REPORT="tuning_report.txt"

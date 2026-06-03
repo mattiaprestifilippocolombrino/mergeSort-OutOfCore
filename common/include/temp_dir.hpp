@@ -23,13 +23,13 @@ class TempDir {
 public:
     TempDir(const std::string& baseDir,
             const std::string& prefix,
-            bool keep = false) // Costruttore: base_dir è la directory padre (es: /tmp/spm_bench),
+            bool keep = false) // Costruttore: base_dir è la directory padre (es: /scratch/spm_bench),
                                  // prefix è un prefisso per il nome della sottodirectory,
                                  // keep è un flag per mantenere o meno la directory alla fine.
     {
         keep_ = keep;
 
-        // Creo la directory base se non esiste, ad esempio /tmp/spm_bench.
+        // Creo la directory base se non esiste, ad esempio /scratch/spm_bench.
         std::filesystem::create_directories(baseDir);
 
         // Uso pid + timestamp + tentativo. 
