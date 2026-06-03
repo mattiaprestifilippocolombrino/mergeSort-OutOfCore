@@ -101,6 +101,18 @@ Se il numero di run e' maggiore di `merge-fan`, il merge viene fatto in piu' pas
 
 Questa tecnica evita di aprire troppi file contemporaneamente e mantiene sotto controllo l'uso della RAM.
 
+### 3.3 Ottimizzazione I/O Asincrono (Multipass Pipeline)
+
+Il collo di bottiglia principale durante il merge e' l'accesso al disco. Per massimizzare il throughput, tutte le versioni adottano una strategia ibrida denominata **Multipass Pipeline**.
+Questa tecnica incapsula il merge K-way in una primitiva asincrona a tre stadi:
+
+1. **Reader**: carica i record dal disco a blocchi (es. 4MB) per minimizzare le system call.
+2. **Merger**: opera sui blocchi in RAM usando la min-heap.
+3. **Writer**: un thread asincrono dedicato (`std::thread`) scrive i risultati su disco a grandi blocchi (es. 32MB).
+
+Mentre il Writer riversa i dati precedenti su disco, la CPU continua a unire i nuovi record in RAM. Questa sovrapposizione nasconde totalmente la latenza di scrittura su disco.
+Inoltre, combinata al Multipass, garantisce sicurezza matematica contro i limiti del sistema operativo (es. max 1024 file aperti simultaneamente), mantenendo il numero di *file descriptor* aperti strettamente al di sotto di una soglia sicura (es. 512) anche quando si parallelizzano gruppi di merge multipli in OpenMP o FastFlow.
+
 ## 4. Componenti comuni
 
 La cartella `common/` contiene il codice condiviso dalle varie versioni.

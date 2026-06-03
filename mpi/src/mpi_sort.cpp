@@ -85,7 +85,7 @@
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
 #include "omp_kway_merger.hpp"
-#include "omp_kway_merger_pipeline.hpp"  // ompKwayMergePipeline() — usa pipeline locale
+#include "omp_kway_merger_multipass_pipeline.hpp"  // ompKwayMergeMultipassPipeline() — I/O asincrono + safe FD
 #include "pipeline_merge_pass.hpp"        // pipelineMergePass() — I/O asincrona
 #include "temp_dir.hpp"
 
@@ -121,7 +121,7 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     MB per chunk locale (default: 256)\n"
               << "  --threads   N     Thread OpenMP per rank (default: max hw)\n"
               << "  --tmp-dir   PATH  Directory temporanea (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in K-way merge locale legacy (default: 64)\n"
+              << "  --merge-fan N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
               << "  --legacy-local-merge\n"
               << "                    Usa il merge locale multi-pass storico dentro ogni rank\n"
               << "  --pipeline-local-merge\n"
@@ -467,7 +467,7 @@ int main(
                       pipelineLocalMerge ? "mpi-local-pipeline"  :
                                            "mpi-local-flat")
                   << "\n"
-                  << "  fan-in   : " << (legacyLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+                  << "  fan-in   : " << (legacyLocalMerge || pipelineLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
 
@@ -528,8 +528,9 @@ int main(
             } else if (pipelineLocalMerge) {
                 // Pipeline I/O asincrona (default): Reader a blocchi + Writer thread.
                 // Ogni rank lavora sul proprio disco locale: zero contesa tra rank.
-                // ompKwayMergePipeline usa OMP per il livello 1 se ci sono molte run.
-                ompKwayMergePipeline(runPaths, localSorted, /*deleteRuns=*/true);
+                // Multipass safe previene crash se il rank locale produce troppe run.
+                if (mergeFan == 64) mergeFan = MULTIPASS_MERGE_FAN_DEFAULT; // Best practice
+                ompKwayMergeMultipassPipeline(runPaths, localSorted, mergeFan, /*deleteRuns=*/true);
             } else {
                 // Flat OMP: due stadi. Conservato come alternativa.
                 ompKwayMerge(runPaths, localSorted,

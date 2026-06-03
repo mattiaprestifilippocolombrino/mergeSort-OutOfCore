@@ -50,7 +50,7 @@
 
 #include "ff_chunk_sorter.hpp"          // ffSortToRuns()
 #include "ff_kway_merger.hpp"           // ffKwayMerge(), ffKwayMergeLegacy()
-#include "ff_kway_merger_pipeline.hpp" // ffKwayMergePipeline() — I/O asincrono
+#include "ff_kway_merger_multipass_pipeline.hpp" // ffKwayMergeMultipassPipeline() — I/O asincrono + safe FD
 #include "temp_dir.hpp"
 
 #include <ff/ff.hpp>
@@ -70,9 +70,9 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     Dimensione chunk in MB      (default: 256)\n"
               << "  --workers   N     Worker FastFlow             (default: max hw - 1)\n"
               << "  --tmp-dir   PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in solo legacy merge    (default: 64)\n"
+              << "  --merge-fan N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
               << "  --legacy-merge    Usa il vecchio merge multi-pass a livelli\n"
-              << "  --pipeline-merge  Pipeline I/O asincrona — raccomandato\n"
+              << "  --pipeline-merge  Pipeline I/O asincrona + Multipass safe — raccomandato\n"
               << "  --keep-runs       Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
               << "  merge impl   : " << (pipelineMerge ? "pipeline async I/O" :
                                           legacyMerge  ? "legacy multi-pass"  :
                                                          "flat two-stage")     << "\n"
-              << "  merge fan-in : " << (legacyMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+              << "  merge fan-in : " << (legacyMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
 
@@ -175,8 +175,9 @@ int main(int argc, char* argv[]) {
     bool deleteRuns = !keepRuns;
     if (pipelineMerge) {
         // Pipeline I/O asincrona: Reader a blocchi + Merger in RAM + Writer asincrono.
-        // Stessa primitiva della versione OMP. Nessun conflitto di affinità FF.
-        ffKwayMergePipeline(runs, outputPath, nWorkers, deleteRuns);
+        // Usa un'architettura multi-pass per la sicurezza sui file descriptor.
+        if (mergeFan == 64) mergeFan = FF_MULTIPASS_MERGE_FAN_DEFAULT; // Best practice
+        ffKwayMergeMultipassPipeline(runs, outputPath, nWorkers, mergeFan, deleteRuns);
     } else if (legacyMerge) {
         ffKwayMergeLegacy(runs, outputPath, nWorkers, mergeFan, deleteRuns);
     } else {

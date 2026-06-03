@@ -17,10 +17,10 @@ FF_PIPELINE=1
 ```
 
 Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **pipeline**:
-questo rappresenta il nuovo approccio a doppio buffer con I/O asincrono.
-OpenMP e FastFlow passano `--pipeline-merge` di default; MPI usa il merge
-locale pipeline di default. Il numero `MERGE_FAN` resta nei CSV solo per
-compatibilita' con le run legacy.
+questo rappresenta il nuovo approccio **Multipass Pipeline** con I/O asincrono
+che garantisce sicurezza sui File Descriptor. OpenMP e FastFlow passano
+`--pipeline-merge` di default; MPI usa il merge locale pipeline di default.
+Il parametro `MERGE_FAN` controlla il numero massimo di file aperti per merge.
 
 Per confronti espliciti con la versione precedente:
 
@@ -324,13 +324,14 @@ RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 
-## Tuning opzionale
+## Tuning opzionale (Grid Search)
+
+Per trovare la migliore combinazione di parametri (chunk size e merge fan) prima delle misurazioni vere e proprie, è stato introdotto uno script dedicato:
 
 ```bash
-BENCHMARK_CASES="manySmall50M:50000000:64" \
-THREAD_LIST="1 32" \
-CHUNK_MB_LIST="32 64 128" \
-PAYLOAD_MAX_BUILD=4096 \
-TRIALS=1 VERIFY=0 \
-sbatch --time=00:10:00 benchmarks/slurm_tune_single_node.sbatch
+cd ~/spmProject
+chmod +x run_tuning.sh
+./run_tuning.sh <input_file> <output_file>
 ```
+
+Lo script compilerà il progetto in Release e testerà varie combinazioni, fornendoti un resoconto e salvandolo in `tuning_report.txt`.

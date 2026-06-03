@@ -103,7 +103,7 @@ Gli script usano il merge **pipeline** come modalita' standard:
 
 - OpenMP e FastFlow passano `--pipeline-merge` di default.
 - MPI usa il merge locale pipeline di default.
-- `MERGE_FAN` resta nei CSV per compatibilita', ma non influenza pipeline/flat.
+- Il parametro `MERGE_FAN` regola il limite di file descriptor aperti dalla Multipass Pipeline.
 
 Per confrontare con la vecchia modalita' flat puoi impostare:
 
@@ -423,7 +423,19 @@ I grafici sono in:
 $RUN_DIR/plots/
 ```
 
-## 14. Scaricare i risultati su Windows
+## 14. Eseguire il Tuning (Opzionale ma raccomandato)
+
+Puoi lanciare uno script locale interattivo per esplorare varie configurazioni di chunk e fan-in in modo automatico. È utile farlo prima di lanciare job costosi.
+
+```bash
+cd ~/spmProject
+chmod +x run_tuning.sh
+./run_tuning.sh data/tuo_file_input.bin data/output.bin
+```
+
+Lo script genererà un `tuning_report.txt` con la classifica delle combinazioni ottimali.
+
+## 15. Scaricare i risultati su Windows
 
 Sul cluster:
 
@@ -445,7 +457,7 @@ mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
 scp LOGIN@spmcluster.unipi.it:~/spmProject/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
 ```
 
-## 15. Cosa scrivere nella relazione
+## 16. Cosa scrivere nella relazione
 
 Commenta:
 

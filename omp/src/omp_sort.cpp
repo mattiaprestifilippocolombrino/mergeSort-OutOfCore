@@ -47,7 +47,7 @@
 
 #include "chunk_sorter.hpp"               // sort_to_runs()
 #include "omp_kway_merger.hpp"            // ompKwayMerge(), ompKwayMergeLegacy()
-#include "omp_kway_merger_pipeline.hpp"  // ompKwayMergePipeline() — I/O asincrono
+#include "omp_kway_merger_multipass_pipeline.hpp"  // ompKwayMergeMultipassPipeline() — I/O asincrono + safe FD
 #include "temp_dir.hpp"
 
 #include <iostream>
@@ -68,9 +68,9 @@ static void usage(const char* prog) {
               << "  --chunk-mb     N     Dimensione chunk in MB      (default: 256)\n"
               << "  --threads      N     Thread OpenMP               (default: max hw)\n"
               << "  --tmp-dir      PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan    N     Fan-in solo legacy merge    (default: 64)\n"
+              << "  --merge-fan    N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
               << "  --legacy-merge       Usa il vecchio merge multi-pass a livelli\n"
-              << "  --pipeline-merge     Pipeline I/O asincrona — raccomandato\n"
+              << "  --pipeline-merge     Pipeline I/O asincrona + Multipass safe — raccomandato\n"
               << "  --no-par-merge       Disabilita merge parallelo (solo flat/legacy)\n"
               << "  --keep-runs          Non eliminare le run (debug)\n";
     std::exit(1);
@@ -150,7 +150,7 @@ int main(int argc, char* argv[]) {
               << "  chunk        : " << chunkMb          << " MB\n"
               << "  threads      : " << nThreads          << "\n"
               << "  merge impl   : " << mergeImplName    << "\n"
-              << "  merge fan-in : " << (legacyMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+              << "  merge fan-in : " << (legacyMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  merge paral. : " << (parallelMerge ? "si" : "no") << "\n"
               << "  tmp          : " << workTmp.str()    << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX       << " B\n\n";
@@ -181,8 +181,9 @@ int main(int argc, char* argv[]) {
     // Il merge lavora solo su file ordinati: non carica mai tutte le run in RAM.
     if (pipelineMerge) {
         // Pipeline I/O asincrona: Reader a blocchi + Merger in RAM + Writer asincrono.
-        // Unica passata sui dati: volume I/O identico al single-thread.
-        ompKwayMergePipeline(runs, outputPath, /*deleteRuns=*/!keepRuns);
+        // Usa un'architettura multi-pass per garantire la sicurezza sui file descriptor.
+        if (mergeFan == 64) mergeFan = MULTIPASS_MERGE_FAN_DEFAULT; // Applica best practice se default
+        ompKwayMergeMultipassPipeline(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns);
     } else if (legacyMerge) {
         // Multi-pass a livelli con task OMP (storico).
         ompKwayMergeLegacy(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
