@@ -6,9 +6,18 @@ CSV, summary, grafici e log separati.
 
 ## Parametri consigliati
 
+> [!TIP]
+> **I valori di CHUNK_MB e MERGE_FAN sono solo esempi!**
+> Le prestazioni ottimali dipendono fortemente dall'hardware del cluster (disco NVMe vs HDD, latenza di rete, RAM disponibile).
+> **Prima** di eseguire le misurazioni descritte qui sotto, lancia lo script di tuning per trovare i tuoi valori ideali:
+> ```bash
+> ./run_tuning.sh data/tuo_file.bin data/output.bin
+> ```
+> Sostituisci poi `64` e `8` negli script sottostanti con i valori vincitori trovati nel file `tuning_report.txt`.
+
 ```bash
-CHUNK_MB=64
-MERGE_FAN=8
+CHUNK_MB=64    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
+MERGE_FAN=8    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0

@@ -193,6 +193,10 @@ Sono equivalenti rispettivamente a totale, fase 1 e fase 2.
 
 Serve solo a verificare build, esecuzione e verifier.
 
+> [!TIP]
+> **I valori di CHUNK_MB=64 e MERGE_FAN=8 nei comandi seguenti sono puramente indicativi!**
+> Le prestazioni ottimali dipendono dall'hardware del cluster. Prima di avviare campagne di misurazione lunghe, vedi la sezione **14. Eseguire il Tuning** per lanciare lo script `./run_tuning.sh` e scoprire i tuoi valori ideali. Sostituisci poi 64 e 8 con i risultati ottenuti.
+
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
