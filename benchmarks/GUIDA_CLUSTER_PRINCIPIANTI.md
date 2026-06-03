@@ -65,12 +65,15 @@ cd ~/spmProject
 ./benchmarks/setup_scratch.sh
 ```
 
+Dal login node questo comando sottomette un piccolo job Slurm: `/scratch` va
+creata/verificata sui nodi di calcolo, non sul login node.
+
 ## 3. Dove finiscono i risultati
 
 Ogni job crea una cartella nuova:
 
 ```text
-/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/
+benchmark_results/run_<jobid>/
 ```
 
 Dentro trovi:
@@ -89,7 +92,7 @@ plots/
 Per puntare sempre all'ultima run:
 
 ```bash
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 echo "$RUN_DIR"
 ```
 
@@ -216,9 +219,9 @@ Controlla:
 
 ```bash
 squeue -u "$USER"
-tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.out
-tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+tail -f slurm_single_*.out
+tail -n 120 slurm_single_*.err
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -240,8 +243,8 @@ sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 Controlla:
 
 ```bash
-tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+tail -n 120 slurm_single_*.err
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/omp_*.log
 ```
@@ -269,8 +272,8 @@ sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 Controlla:
 
 ```bash
-tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+tail -n 120 slurm_single_*.err
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/ff_*.log
 ```
@@ -320,9 +323,9 @@ Controlla:
 
 ```bash
 squeue -u "$USER"
-tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.out
-tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+tail -f slurm_mpi_*.out
+tail -n 160 slurm_mpi_*.err
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_strong_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/mpi_strong_*.log
 ```
@@ -365,8 +368,8 @@ sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 Controlla:
 
 ```bash
-tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+tail -n 160 slurm_mpi_*.err
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_weak_summary.csv"
 ```
 
@@ -390,7 +393,7 @@ sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 
 ```bash
 cd ~/spmProject
-RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
+RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
 python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 
@@ -421,7 +424,7 @@ Sul cluster:
 
 ```bash
 cd ~/spmProject
-tar -czf /scratch/m.prestifilippoco/spmRun/spm_benchmark_results.tar.gz -C /scratch/m.prestifilippoco/spmRun results slurm
+tar -czf spm_benchmark_results.tar.gz benchmark_results
 ```
 
 Poi esci:
@@ -434,7 +437,7 @@ Da PowerShell:
 
 ```powershell
 mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp LOGIN@spmcluster.unipi.it:/scratch/m.prestifilippoco/spmRun/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
+scp LOGIN@spmcluster.unipi.it:~/spmProject/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
 ```
 
 ## 16. Cosa scrivere nella relazione

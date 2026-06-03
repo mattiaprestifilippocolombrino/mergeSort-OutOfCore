@@ -381,10 +381,10 @@ efficiency(p) = speedup(p) / p
 dove `p` e' il numero di thread o worker. I risultati aggregati sono salvati in:
 
 ```text
-/scratch/m.prestifilippoco/spmRun/results/run_*/single_node_summary.csv
+benchmark_results/run_*/single_node_summary.csv
 ```
 
-Se `matplotlib` e' disponibile, vengono prodotti anche i grafici in `/scratch/m.prestifilippoco/spmRun/results/run_*/plots/`.
+Se `matplotlib` e' disponibile, vengono prodotti anche i grafici in `benchmark_results/run_*/plots/`.
 
 ### 10.3 Strong scaling MPI
 
@@ -408,7 +408,7 @@ strong_efficiency = strong_speedup / (cores(p) / cores_base)
 La baseline e' la configurazione con il numero minimo di core totali disponibile per lo stesso dataset. Il CSV aggregato e':
 
 ```text
-/scratch/m.prestifilippoco/spmRun/results/run_*/mpi_strong_summary.csv
+benchmark_results/run_*/mpi_strong_summary.csv
 ```
 
 ### 10.4 Weak scaling MPI

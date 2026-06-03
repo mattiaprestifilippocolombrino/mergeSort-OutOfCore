@@ -13,8 +13,9 @@ ripetibile e separato dalla campagna finale.
 - Lascia `VERIFY=0` durante il tuning; fai la verifica in un job piccolo
   separato.
 - Non usare `SKIP_BUILD=1` quando cambi `PAYLOAD_MAX_BUILD`.
-- Prima degli `sbatch`, crea le directory scratch con
-  `./benchmarks/setup_scratch.sh`.
+- `./benchmarks/setup_scratch.sh` sottomette un micro-job di verifica quando lo
+  lanci dal login node; i job di benchmark creano comunque la propria directory
+  scratch all'avvio.
 
 ## Dataset tuning
 
@@ -75,7 +76,7 @@ sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
 Ogni job produce una directory:
 
 ```text
-/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/
+benchmark_results/run_<jobid>/
 ```
 
 I file principali sono:
@@ -90,8 +91,8 @@ logs/
 Per confrontare piu' job:
 
 ```bash
-ls -td /scratch/m.prestifilippoco/spmRun/results/run_*
-cat /scratch/m.prestifilippoco/spmRun/results/run_*/single_node_tuning_summary.csv
+ls -td benchmark_results/run_*
+cat benchmark_results/run_*/single_node_tuning_summary.csv
 ```
 
 Scegli la coppia `CHUNK_MB`, `MERGE_FAN` con `avg_total_s` piu' basso nel caso

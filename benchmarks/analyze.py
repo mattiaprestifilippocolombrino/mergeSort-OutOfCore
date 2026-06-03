@@ -360,7 +360,7 @@ def main() -> None:
     parser.add_argument(
         "--results-dir",
         default=os.environ.get("RESULTS_DIR"),
-        help="Directory containing raw CSVs. Defaults to RESULTS_DIR or the newest /scratch run.",
+        help="Directory containing raw CSVs. Defaults to RESULTS_DIR or the newest benchmark_results run.",
     )
     parser.add_argument("--keep-worst", action="store_true", help="Do not drop the slowest trial when at least 3 trials exist.")
     args = parser.parse_args()
@@ -368,7 +368,7 @@ def main() -> None:
     if args.results_dir:
         results_dir = Path(args.results_dir)
     else:
-        results_root = Path("/scratch/m.prestifilippoco/spmRun/results")
+        results_root = Path("benchmark_results")
         runs = sorted(
             results_root.glob("run_*"),
             key=lambda path: path.stat().st_mtime,

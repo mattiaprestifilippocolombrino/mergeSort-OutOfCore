@@ -7,8 +7,8 @@ PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 BENCHMARK_RUN_ID="${BENCHMARK_RUN_ID:-${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)_$$}}"
 SCRATCH_BASE="${SCRATCH_BASE:-/scratch/m.prestifilippoco}"
-BUILD_DIR="${BUILD_DIR:-$SCRATCH_BASE/spmRun/build_$BENCHMARK_RUN_ID}"
-RESULTS_ROOT="${RESULTS_ROOT:-$SCRATCH_BASE/spmRun/results}"
+BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
+RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_DIR/benchmark_results}"
 TMP_BASE="${TMP_BASE:-$SCRATCH_BASE/spm_benchmark_$BENCHMARK_RUN_ID/work}"
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT/run_$BENCHMARK_RUN_ID}"
 LOG_DIR="${LOG_DIR:-$RESULTS_DIR/logs}"
@@ -51,10 +51,6 @@ prepare_storage_dirs() {
     if [[ "$TMP_BASE" != /scratch/* ]]; then
         log "[WARN] TMP_BASE non e' sotto /scratch: $TMP_BASE"
         log "[WARN] Per misure finali HPC usa scratch locale del nodo, non filesystem condiviso."
-    fi
-    if [[ "$RESULTS_ROOT" != /scratch/* ]]; then
-        log "[WARN] RESULTS_ROOT non e' sotto /scratch: $RESULTS_ROOT"
-        log "[WARN] Evita log e CSV frequenti su home NFS durante benchmark HPC."
     fi
     if [[ "$DATA_DIR" != /scratch/* ]]; then
         log "[WARN] DATA_DIR non e' sotto /scratch: $DATA_DIR"

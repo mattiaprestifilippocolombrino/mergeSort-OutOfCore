@@ -5,8 +5,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --time=00:20:00
-#SBATCH --output=/scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_%j.out
-#SBATCH --error=/scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_%j.err
+#SBATCH --output=slurm_mpi_%j.out
+#SBATCH --error=slurm_mpi_%j.err
 
 set -Eeuo pipefail
 
@@ -16,7 +16,7 @@ export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 SCRATCH_BASE="${SCRATCH_BASE:-/scratch/m.prestifilippoco}"
 RUN_ROOT="$SCRATCH_BASE/spmRun/mpi"
 export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
-export RESULTS_ROOT="$SCRATCH_BASE/spmRun/results"
+export RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_DIR/benchmark_results}"
 export BENCHMARK_RUN_ID="${SLURM_JOB_ID:-localRun}"
 export RESULTS_DIR="$RESULTS_ROOT/run_$BENCHMARK_RUN_ID"
 export LOG_DIR="$RESULTS_DIR/logs"
@@ -24,8 +24,23 @@ export DATA_DIR="$RUN_DIR/data"
 export TMP_BASE="$RUN_DIR/work"
 
 mkdir -p "$RESULTS_DIR" "$LOG_DIR" "$DATA_DIR" "$TMP_BASE"
+if [[ -n "${SLURM_JOB_ID:-}" && -n "${SLURM_JOB_NUM_NODES:-}" ]] && command -v srun >/dev/null 2>&1; then
+    srun -N "$SLURM_JOB_NUM_NODES" -n "$SLURM_JOB_NUM_NODES" --ntasks-per-node=1 --cpu-bind=none \
+        bash -c '
+            set -Eeuo pipefail
+            scratch_base="$1"
+            data_dir="$2"
+            tmp_base="$3"
+            mkdir -p "$scratch_base" "$data_dir" "$tmp_base"
+            test -w "$scratch_base"
+        ' _ "$SCRATCH_BASE" "$DATA_DIR" "$TMP_BASE"
+fi
 cleanup_scratch() {
     if [[ "${CLEAN_SCRATCH:-1}" == "1" && -n "${RUN_DIR:-}" && "$RUN_DIR" == /scratch/* ]]; then
+        if [[ -n "${SLURM_JOB_ID:-}" && -n "${SLURM_JOB_NUM_NODES:-}" ]] && command -v srun >/dev/null 2>&1; then
+            srun -N "$SLURM_JOB_NUM_NODES" -n "$SLURM_JOB_NUM_NODES" --ntasks-per-node=1 --cpu-bind=none \
+                rm -rf "$RUN_DIR" || true
+        fi
         rm -rf "$RUN_DIR"
     fi
 }
