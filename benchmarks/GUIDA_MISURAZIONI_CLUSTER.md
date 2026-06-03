@@ -11,13 +11,13 @@ CSV, summary, grafici e log separati.
 > Le prestazioni ottimali dipendono fortemente dall'hardware del cluster (disco NVMe vs HDD, latenza di rete, RAM disponibile).
 > **Prima** di eseguire le misurazioni descritte qui sotto, lancia lo script di tuning per trovare i tuoi valori ideali:
 > ```bash
-> ./run_tuning.sh data/tuo_file.bin data/output.bin
+> sbatch benchmarks/slurm_tune_single_node.sbatch
 > ```
-> Sostituisci poi `64` e `8` negli script sottostanti con i valori vincitori trovati nel file `tuning_report.txt`.
+> Sostituisci poi `128` e `16` negli script sottostanti con i valori ottimali ricavati.
 
 ```bash
-CHUNK_MB=64    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
-MERGE_FAN=8    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
+CHUNK_MB=128    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
+MERGE_FAN=16    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
@@ -160,7 +160,7 @@ I grafici in `plots/` mostrano insieme total, phase 1 e phase 2.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
@@ -186,7 +186,7 @@ campagna OpenMP.
 RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 FF_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
@@ -211,7 +211,7 @@ non e' valida: conserva il log e commentalo.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -235,7 +235,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -265,7 +265,7 @@ WEAK_CASES="weakSmall6250k:6250000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -288,7 +288,7 @@ La verifica va tenuta fuori dai benchmark finali e fatta su una run piccola.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -304,7 +304,7 @@ Pipeline OpenMP:
 RUN_OMP=1 RUN_FF=0 OMP_PIPELINE=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -315,7 +315,7 @@ Flat OpenMP:
 RUN_OMP=1 RUN_FF=0 OMP_FLAT_MERGE=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -335,12 +335,11 @@ python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 
 ## Tuning opzionale (Grid Search)
 
-Per trovare la migliore combinazione di parametri (chunk size e merge fan) prima delle misurazioni vere e proprie, è stato introdotto uno script dedicato:
+Per trovare la migliore combinazione di parametri (chunk size e merge fan) prima delle misurazioni vere e proprie sul cluster, usa il job di tuning:
 
 ```bash
 cd ~/spmProject
-chmod +x run_tuning.sh
-./run_tuning.sh <input_file> <output_file>
+sbatch benchmarks/slurm_tune_single_node.sbatch
 ```
 
-Lo script compilerà il progetto in Release e testerà varie combinazioni, fornendoti un resoconto e salvandolo in `tuning_report.txt`.
+Lo script invierà un job Slurm che testa le varie combinazioni in autonomia, fornendoti un resoconto finale `single_node_tuning_raw.csv` e plottando i risultati migliori.

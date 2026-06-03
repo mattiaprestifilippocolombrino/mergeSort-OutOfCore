@@ -177,6 +177,7 @@ inline void ffKwayMergeMultipassPipeline(
         // safeWorkers garantisce che il numero totale di file aperti in
         // contemporanea non superi FF_MULTIPASS_OPEN_FILES_SAFE.
         ff::ParallelFor pf(safeWorkers, false);
+        pf.no_mapping(); // [CRITICAL FIX] Disabilita il CPU pinning interno per evitare crash con Slurm cgroups.
 
         pf.parallel_for(0, numGroups, 1, 0,
             [&](const long g) {

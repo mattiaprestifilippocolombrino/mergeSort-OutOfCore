@@ -194,15 +194,15 @@ Sono equivalenti rispettivamente a totale, fase 1 e fase 2.
 Serve solo a verificare build, esecuzione e verifier.
 
 > [!TIP]
-> **I valori di CHUNK_MB=64 e MERGE_FAN=8 nei comandi seguenti sono puramente indicativi!**
-> Le prestazioni ottimali dipendono dall'hardware del cluster. Prima di avviare campagne di misurazione lunghe, vedi la sezione **14. Eseguire il Tuning** per lanciare lo script `./run_tuning.sh` e scoprire i tuoi valori ideali. Sostituisci poi 64 e 8 con i risultati ottenuti.
+> **I valori di CHUNK_MB=128 e MERGE_FAN=16 nei comandi seguenti sono puramente indicativi (anche se migliori di quelli vecchi)!**
+> Le prestazioni ottimali dipendono dall'hardware del cluster. Prima di avviare campagne di misurazione lunghe, vedi la sezione **14. Eseguire il Tuning** per lanciare il job di tuning e scoprire i tuoi valori ideali.
 
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
@@ -228,7 +228,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
@@ -256,7 +256,7 @@ cd ~/spmProject
 RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 FF_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
@@ -429,15 +429,14 @@ $RUN_DIR/plots/
 
 ## 14. Eseguire il Tuning (Opzionale ma raccomandato)
 
-Puoi lanciare uno script locale interattivo per esplorare varie configurazioni di chunk e fan-in in modo automatico. È utile farlo prima di lanciare job costosi.
+Puoi lanciare il job di tuning per esplorare varie configurazioni di chunk e fan-in in modo automatico. È essenziale farlo prima di lanciare i job per i benchmark finali, così da massimizzare le performance per l'I/O del cluster.
 
 ```bash
 cd ~/spmProject
-chmod +x run_tuning.sh
-./run_tuning.sh data/tuo_file_input.bin data/output.bin
+sbatch benchmarks/slurm_tune_single_node.sbatch
 ```
 
-Lo script genererà un `tuning_report.txt` con la classifica delle combinazioni ottimali.
+Il job proverà in automatico tutte le combinazioni (es. chunk 64, 128, 256 MB con fan-in 16, 32, 64) e genererà un CSV chiamato `single_node_tuning_raw.csv` con la classifica delle combinazioni ottimali, che poi verrà plottata dallo script di analisi.
 
 ## 15. Scaricare i risultati su Windows
 
