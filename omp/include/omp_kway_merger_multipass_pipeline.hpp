@@ -41,11 +41,18 @@
 //
 // GARANZIA SUL NUMERO DI FILE APERTI
 // ─────────────────────────────────────────────────────────────────────────────
-//   safeWorkers  = min(nThreads, MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1))
+//   Ogni pipelineMergePass() usa:
+//     - 1 thread OMP chiamante per il merge
+//     - 1 std::thread Writer per sovrapporre l'output
+//
+//   safeWorkers  = min(nThreads / 2, MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1))
 //   FD aperti    = safeWorkers × (mergeFan + 1)  ≤  MULTIPASS_OPEN_FILES_SAFE
+//   Thread circa = safeWorkers × 2                 ≤  nThreads
 //
 //   Esempio concreto (mergeFan=32, nThreads=16):
-//     safeWorkers  = min(16, 512 / 33) = min(16, 15) = 15
+//     limite FD    = 512 / 33 = 15
+//     limite CPU   = 16 / 2 = 8
+//     safeWorkers  = min(15, 8) = 8
 //     FD aperti    = 15 × 33 = 495  ← ben sotto il limite di 1024
 //
 // NUMERO DI PASSATE SU DISCO
@@ -67,7 +74,6 @@
 #include <algorithm>
 #include <atomic>
 #include <exception>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -104,21 +110,26 @@ static constexpr int MULTIPASS_OPEN_FILES_SAFE = 512;
 //   - 1 file di output (il file intermedio prodotto)
 //   totale: mergeFan + 1 file descriptor per worker
 //
-// Con `workers` thread attivi contemporaneamente:
+// Con `workers` merge task attivi contemporaneamente:
 //   FD totali = workers × (mergeFan + 1)
+//   thread    ≈ workers × 2  (thread OMP/FastFlow + Writer SPSC)
 //
 // Vogliamo:
 //   workers × (mergeFan + 1) ≤ MULTIPASS_OPEN_FILES_SAFE
 //   → workers ≤ MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1)
+//   workers × 2 ≤ availableThreads
+//   → workers ≤ availableThreads / 2
 //
-// In pratica prendiamo il minimo tra questo limite e i thread OMP disponibili.
+// In pratica prendiamo il minimo tra limite FD e limite CPU. Con un solo thread
+// resta comunque 1, così la pipeline funziona anche per baseline/sequenziale.
 // =============================================================================
 inline int safeConcurrentWorkers(int mergeFan, int availableThreads)
 {
     if (mergeFan < 1)          mergeFan         = 1;
     if (availableThreads < 1)  availableThreads = 1;
-    const int maxSafe = MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1);
-    return std::max(1, std::min(availableThreads, maxSafe));
+    const int maxByFd  = MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1);
+    const int maxByCpu = std::max(1, availableThreads / 2);
+    return std::max(1, std::min(maxByCpu, maxByFd));
 }
 
 
@@ -182,6 +193,8 @@ inline void ompKwayMergeMultipassPipeline(
     // ── Caso ottimale: tutte le run entrano in un singolo merge ───────────────
     // Una sola pipelineMergePass(): 1 passata su disco, Writer asincrono attivo.
     // Nessun file intermedio, nessun overhead di loop.
+    // Qui la soglia resta mergeFan, non 2*nThreads: mergeFan e' anche il limite
+    // dichiarato di fan-in, memoria per reader e file descriptor per merge task.
     if (static_cast<int>(runPaths.size()) <= mergeFan) {
         if (verbose) {
             std::fprintf(stderr,
@@ -233,12 +246,12 @@ inline void ompKwayMergeMultipassPipeline(
         // Strutture per la propagazione sicura degli errori attraverso i thread OMP.
         std::atomic<bool>  hadError{false};
         std::exception_ptr firstError;
-        std::mutex         errorMutex;
 
         // ── Loop parallelo: ogni gruppo viene fuso con pipelineMergePass() ───
         //
-        // num_threads(safeWorkers): mai più di safeWorkers thread attivi in
-        //   contemporanea → FD totali ≤ MULTIPASS_OPEN_FILES_SAFE. Garantito.
+        // num_threads(safeWorkers): mai più di safeWorkers merge task OMP
+        //   attivi in contemporanea. Il calcolo di safeWorkers considera anche
+        //   il Writer std::thread interno a ogni pipelineMergePass().
         //
         // schedule(dynamic): i gruppi vengono assegnati ai thread man mano che
         //   si liberano. Utile quando i gruppi hanno dimensioni diverse (l'ultimo
@@ -248,11 +261,11 @@ inline void ompKwayMergeMultipassPipeline(
         //   - RunBlockReader: lettura a blocchi da 4MB per run (poche syscall)
         //   - Min-Heap in RAM: merge K-way senza I/O nel loop principale
         //   - Writer std::thread: scrittura su disco in parallelo con il merge
-        //   Questo nasconde completamente la latenza I/O dell'output.
+        //   Questo sovrappone parte della latenza I/O al lavoro di merge.
         #pragma omp parallel for schedule(dynamic) num_threads(safeWorkers) \
             default(none) \
             shared(currentLevel, nextLevel, R, numGroups, mergeFan, delSrc, \
-                   hadError, firstError, errorMutex)
+                   hadError, firstError)
         for (int g = 0; g < numGroups; ++g) {
             // Fast exit se un altro gruppo ha già fallito.
             if (hadError.load(std::memory_order_relaxed)) continue;
@@ -269,8 +282,10 @@ inline void ompKwayMergeMultipassPipeline(
                 pipelineMergePass(group, nextLevel[g], delSrc);
             } catch (...) {
                 hadError.store(true, std::memory_order_relaxed);
-                std::lock_guard<std::mutex> lk(errorMutex);
-                if (!firstError) firstError = std::current_exception();
+                #pragma omp critical(omp_multipass_pipeline_error)
+                {
+                    if (!firstError) firstError = std::current_exception();
+                }
             }
         }
 
@@ -286,8 +301,8 @@ inline void ompKwayMergeMultipassPipeline(
     // A questo punto rimangono al massimo mergeFan file. Una singola
     // pipelineMergePass() li fonde direttamente in outputPath:
     //   - Nessun file intermedio aggiuntivo.
-    //   - Writer asincrono attivo: il thread principale non aspetta il disco.
-    //   - Un solo std::thread extra (il Writer): nessun overhead OMP.
+        //   - Writer asincrono attivo: parte della scrittura si sovrappone al merge.
+        //   - Un solo std::thread extra (il Writer), fuori dal runtime OMP.
     ++pass;
     if (verbose) {
         std::fprintf(stderr,

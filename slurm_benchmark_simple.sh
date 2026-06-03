@@ -21,6 +21,7 @@ BUILD_DIR="$PROJECT_DIR/build_slurm"
 RECORDS="${RECORDS:-1000000}"
 PAYLOAD_MAX="${PAYLOAD_MAX:-256}"
 CHUNK_MB="${CHUNK_MB:-128}"
+MERGE_FAN="${MERGE_FAN:-16}"
 THREADS="${SLURM_CPUS_PER_TASK:-16}"
 MPI_RANKS="${SLURM_NTASKS:-2}"
 
@@ -44,6 +45,7 @@ echo "Threads/rank : $THREADS"
 echo "Records      : $RECORDS"
 echo "Payload max  : $PAYLOAD_MAX"
 echo "Chunk MB     : $CHUNK_MB"
+echo "Merge fan    : $MERGE_FAN"
 echo
 
 mkdir -p "$RUN_DIR"
@@ -79,7 +81,8 @@ echo "=== OpenMP version ==="
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
     --tmp-dir "$RUN_DIR" \
-    --pipeline-merge
+    --multipass-merge \
+    --merge-fan "$MERGE_FAN"
 
 "$BUILD_DIR/verify" "$INPUT" "$OUT_OMP"
 rm -f "$OUT_OMP"
@@ -92,7 +95,8 @@ if [[ -x "$BUILD_DIR/ff_sort" ]]; then
         --chunk-mb "$CHUNK_MB" \
         --workers "$THREADS" \
         --tmp-dir "$RUN_DIR" \
-        --pipeline-merge
+        --multipass-merge \
+        --merge-fan "$MERGE_FAN"
 
     "$BUILD_DIR/verify" "$INPUT" "$OUT_FF"
     rm -f "$OUT_FF"
@@ -118,7 +122,8 @@ fi
     --chunk-mb "$CHUNK_MB" \
     --threads "$THREADS" \
     --tmp-dir "$RUN_DIR" \
-    --pipeline-local-merge
+    --multipass-local-merge \
+    --merge-fan "$MERGE_FAN"
 
 "$BUILD_DIR/verify" "$MPI_INPUT" "$OUT_MPI"
 rm -f "$OUT_MPI"

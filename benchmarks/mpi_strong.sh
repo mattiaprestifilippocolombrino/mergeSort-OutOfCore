@@ -17,11 +17,14 @@ fi
 write_csv_header "$CSV" \
     "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,chunk_mb,merge_fan,local_merge_impl,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
-mpi_local_merge_impl="mpi_local_pipeline"
-mpi_local_merge_args=()
-if [[ "${MPI_LEGACY_LOCAL_MERGE:-0}" == "1" ]]; then
-    mpi_local_merge_impl="mpi_local_legacy"
-    mpi_local_merge_args+=(--legacy-local-merge)
+mpi_local_merge_impl="mpi_local_multipass"
+mpi_local_merge_args=(--multipass-local-merge)
+if [[ "${MPI_PIPELINE_LOCAL_MERGE:-0}" == "1" ]]; then
+    mpi_local_merge_impl="mpi_local_pipeline"
+    mpi_local_merge_args=(--pipeline-local-merge)
+elif [[ "${MPI_FLAT_LOCAL_MERGE:-0}" == "1" ]]; then
+    mpi_local_merge_impl="mpi_local_flat"
+    mpi_local_merge_args=(--flat-local-merge)
 fi
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"

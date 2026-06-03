@@ -53,7 +53,6 @@
 
 #include <atomic>
 #include <exception>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -106,9 +105,9 @@ inline void ffKwayMergePipeline(
     }
 
     // ── Poche run → merge diretto in pipeline ─────────────────────────────────
-    // Come nella versione OMP: se le run sono ≤ nWorkers, facciamo direttamente
-    // una pipelineMergePass() single-shot su tutte le run.
-    if (runPaths.size() <= static_cast<size_t>(nWorkers)) {
+    // Come nella versione OMP: se le run sono ≤ 2*nWorkers, il primo livello
+    // parallelo creerebbe gruppi da 1-2 run e una seconda passata finale.
+    if (runPaths.size() <= 2 * static_cast<size_t>(nWorkers)) {
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] level=1 runs=%zu mode=directPipeline\n",
@@ -144,10 +143,10 @@ inline void ffKwayMergePipeline(
     // Il secondo argomento (false) disabilita il CPU pinning interno di FF,
     // evitando conflitti con il pinning già impostato dalla farm della Fase 1.
     ff::ParallelFor pf(workers, false);
+    pf.no_mapping();
 
     std::atomic<bool>  mergeError{false};
-    std::exception_ptr firstError;
-    std::mutex         errorMutex;
+    std::vector<std::exception_ptr> groupErrors(groups);
 
     pf.parallel_for(0, groups, 1, 0,
         [&](const long g) {
@@ -165,13 +164,14 @@ inline void ffKwayMergePipeline(
 
             } catch (...) {
                 mergeError.store(true, std::memory_order_relaxed);
-                std::lock_guard<std::mutex> lk(errorMutex);
-                if (!firstError) firstError = std::current_exception();
+                groupErrors[static_cast<size_t>(g)] = std::current_exception();
             }
         }
     );
 
-    if (firstError) std::rethrow_exception(firstError);
+    for (const auto& err : groupErrors) {
+        if (err) std::rethrow_exception(err);
+    }
 
     // ── LIVELLO 2: merge finale degli intermedi ───────────────────────────────
     if (verbose) {

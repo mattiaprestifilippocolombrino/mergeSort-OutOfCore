@@ -21,22 +21,26 @@ MERGE_FAN=16    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
-OMP_PIPELINE=1
-FF_PIPELINE=1
+OMP_PIPELINE=0
+FF_PIPELINE=0
 ```
 
-Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **pipeline**:
-questo rappresenta il nuovo approccio **Multipass Pipeline** con I/O asincrono
-che garantisce sicurezza sui File Descriptor. OpenMP e FastFlow passano
-`--pipeline-merge` di default; MPI usa il merge locale pipeline di default.
-Il parametro `MERGE_FAN` controlla il numero massimo di file aperti per merge.
+Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **multipass**:
+questo rappresenta il merge multi-pass semplice, scelto come versione principale
+perche' e' prevedibile su cluster HPC e non crea writer thread extra. OpenMP e
+FastFlow passano `--multipass-merge` in modo esplicito; MPI usa il merge locale
+multi-pass di default. Il parametro `MERGE_FAN` controlla il fan-in massimo per
+ogni merge.
 
-Per confronti espliciti con la versione precedente:
+Per confronti espliciti con le altre versioni:
 
 ```bash
 OMP_FLAT_MERGE=1
 FF_FLAT_MERGE=1
-MPI_LEGACY_LOCAL_MERGE=1
+OMP_PIPELINE=1
+FF_PIPELINE=1
+MPI_PIPELINE_LOCAL_MERGE=1
+MPI_FLAT_LOCAL_MERGE=1
 ```
 
 Per le misure finali con `PAYLOAD_MAX_BUILD=4096` non impostare
@@ -161,7 +165,6 @@ RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -187,7 +190,6 @@ RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-FF_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
@@ -293,10 +295,21 @@ TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
 
-## Confronto pipeline vs flat
+## Confronto multi-pass vs pipeline vs flat
 
-Per verificare che il nuovo merge sia vantaggioso rispetto alla versione flat,
-lancia due job identici cambiando solo la modalita' di merge.
+Per verificare che pipeline o flat siano vantaggiosi rispetto allo standard,
+lancia job identici cambiando solo la modalita' di merge.
+
+Multi-pass OpenMP standard:
+
+```bash
+RUN_OMP=1 RUN_FF=0 \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+THREAD_LIST="1 2 4 8 16 32" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+TRIALS=1 VERIFY=0 \
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+```
 
 Pipeline OpenMP:
 

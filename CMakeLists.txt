@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ─── Flag di compilazione ─────────────────────────────────────────────────────
-add_compile_options(-O3 -ffast-math -march=native -Wall -Wextra)
+add_compile_options(-O3 -march=native -Wall -Wextra)
 
 # ─── PAYLOAD_MAX configurabile ────────────────────────────────────────────────
 if(DEFINED PAYLOAD_MAX)
@@ -96,13 +96,13 @@ endif()
 
 add_custom_target(run_test_omp
     DEPENDS omp_sort generate verify
-    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP flat - 500k record ==="
+    COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP multi-pass - 500k record ==="
     COMMAND ./generate /tmp/test_input.bin 500000 --payload-max 64
-    COMMAND ./omp_sort  /tmp/test_input.bin /tmp/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir /tmp
+    COMMAND ./omp_sort  /tmp/test_input.bin /tmp/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir /tmp --multipass-merge --merge-fan 16
     COMMAND ./verify    /tmp/test_input.bin /tmp/test_output_omp.bin
     COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input.bin /tmp/test_output_omp.bin
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Test correttezza OMP flat..."
+    COMMENT "Test correttezza OMP multi-pass..."
 )
 
 add_custom_target(run_test_omp_pipeline
@@ -120,13 +120,13 @@ add_custom_target(run_test_omp_pipeline
 if(FF_FOUND)
     add_custom_target(run_test_ff
         DEPENDS ff_sort generate verify
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Test FastFlow - 500k record ==="
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Test FastFlow multi-pass - 500k record ==="
         COMMAND ./generate /tmp/test_input_ff.bin 500000 --payload-max 256
-        COMMAND ./ff_sort   /tmp/test_input_ff.bin /tmp/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir /tmp
+        COMMAND ./ff_sort   /tmp/test_input_ff.bin /tmp/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir /tmp --multipass-merge --merge-fan 16
         COMMAND ./verify    /tmp/test_input_ff.bin /tmp/test_output_ff.bin
         COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_ff.bin /tmp/test_output_ff.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Test correttezza FF flat..."
+        COMMENT "Test correttezza FF multi-pass..."
     )
 
     add_custom_target(run_test_ff_pipeline
@@ -147,7 +147,7 @@ if(MPI_CXX_FOUND)
         DEPENDS mpi_sort generate verify
         COMMAND ${CMAKE_COMMAND} -E echo "=== Test MPI - 500k record, 2 rank ==="
         COMMAND ./generate /tmp/test_input_mpi.bin 500000 --payload-max 256
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir /tmp
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir /tmp --multipass-local-merge --merge-fan 16
         COMMAND ./verify /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin
         COMMAND ${CMAKE_COMMAND} -E remove /tmp/test_input_mpi.bin /tmp/test_output_mpi.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}

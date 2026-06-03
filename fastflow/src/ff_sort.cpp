@@ -8,9 +8,11 @@
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run (default: 256 MB)
 //   --workers   N     Numero di Worker FastFlow (default: max hw - 1)
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan N     Fan-in massimo solo per --legacy-merge (default: 64)
-//   --legacy-merge    Usa il vecchio merge multi-pass a livelli
-//   --pipeline-merge  Usa il merge in pipeline I/O asincrona (raccomandato)
+//   --merge-fan N     Fan-in massimo del merge multi-pass (default: 16)
+//   --multipass-merge Usa merge multi-pass semplice (default)
+//   --legacy-merge    Alias storico di --multipass-merge
+//   --flat-merge      Usa merge flat a due stadi
+//   --pipeline-merge  Usa il merge in pipeline I/O asincrona
 //   --keep-runs       Non eliminare i file di run dopo il merge (debug)
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,9 +34,9 @@
 //   I Worker ordinano il chunk e scrivono la run su disco.
 //
 // FASE 2  —  selezione dell'algoritmo di merge [tre implementazioni]:
-//   flat (default)    [ff_kway_merger.hpp]          — due stadi, stage 2 seriale
-//   legacy            [ff_kway_merger.hpp]          — multi-pass a livelli
-//   pipeline          [ff_kway_merger_pipeline.hpp] — I/O asincrona (raccomandato)
+//   multipass (default) [ff_kway_merger.hpp]          — multi-pass semplice
+//   flat                [ff_kway_merger.hpp]          — due stadi, stage 2 seriale
+//   pipeline            [ff_kway_merger_pipeline.hpp] — I/O asincrona per confronto
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // DIFFERENZA RISPETTO ALLA VERSIONE OMP
@@ -54,6 +56,8 @@
 #include "temp_dir.hpp"
 
 #include <ff/ff.hpp>
+#include <cstdio>
+#include <stdexcept>
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -70,9 +74,11 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     Dimensione chunk in MB      (default: 256)\n"
               << "  --workers   N     Worker FastFlow             (default: max hw - 1)\n"
               << "  --tmp-dir   PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
-              << "  --legacy-merge    Usa il vecchio merge multi-pass a livelli\n"
-              << "  --pipeline-merge  Pipeline I/O asincrona + Multipass safe — raccomandato\n"
+              << "  --merge-fan N     Fan-in per merge multi-pass  (default: 16)\n"
+              << "  --multipass-merge Usa merge multi-pass semplice (default)\n"
+              << "  --legacy-merge    Alias storico di --multipass-merge\n"
+              << "  --flat-merge      Usa merge flat a due stadi\n"
+              << "  --pipeline-merge  Usa Multipass Pipeline con Writer asincrono\n"
               << "  --keep-runs       Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -88,10 +94,11 @@ int main(int argc, char* argv[]) {
     std::string outputPath = argv[2];
     std::string tmpDir     = "/tmp";
     size_t      chunkMb    = 256;
-    int         mergeFan    = 64;
+    int         mergeFan    = 16;
     bool        keepRuns    = false;
-    bool        legacyMerge  = false;
+    bool        multipassMerge = true;
     bool        pipelineMerge = false;  // --pipeline-merge: I/O asincrona
+    bool        mergeFanExplicit = false;
 
     // ff_numCores() restituisce il numero di core logici disponibili.
     // Riservo 1 core per l'Emitter, assegno gli altri ai Worker.
@@ -111,12 +118,16 @@ int main(int argc, char* argv[]) {
             tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
-        } else if (a == "--legacy-merge") {
-            legacyMerge   = true;
+            mergeFanExplicit = true;
+        } else if (a == "--legacy-merge" || a == "--multipass-merge") {
+            multipassMerge = true;
+            pipelineMerge = false;
+        } else if (a == "--flat-merge") {
+            multipassMerge = false;
             pipelineMerge = false;
         } else if (a == "--pipeline-merge") {
             pipelineMerge = true;
-            legacyMerge   = false;
+            multipassMerge = false;
         } else if (a == "--keep-runs") {
             keepRuns = true;
         } else {
@@ -131,6 +142,10 @@ int main(int argc, char* argv[]) {
 
     const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL;
 
+    if (pipelineMerge && !mergeFanExplicit) {
+        mergeFan = FF_MULTIPASS_MERGE_FAN_DEFAULT;
+    }
+
     // Directory temporanea unica per questa esecuzione FastFlow.
     TempDir workTmp(tmpDir, "spm_ff", keepRuns);
 
@@ -140,9 +155,9 @@ int main(int argc, char* argv[]) {
               << "  chunk        : " << chunkMb       << " MB\n"
               << "  workers      : " << nWorkers       << "\n"
               << "  merge impl   : " << (pipelineMerge ? "pipeline async I/O" :
-                                          legacyMerge  ? "legacy multi-pass"  :
-                                                         "flat two-stage")     << "\n"
-              << "  merge fan-in : " << (legacyMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+                                          multipassMerge ? "simple multi-pass" :
+                                                           "flat two-stage")   << "\n"
+              << "  merge fan-in : " << (multipassMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
 
@@ -161,7 +176,12 @@ int main(int argc, char* argv[]) {
               << seconds(t0, t1) << " s\n";   // Stampa il tempo impiegato per la fase 1.
 
     if (runs.empty()) {
-        std::cout << "File vuoto — output non creato.\n";
+        FILE* empty = std::fopen(outputPath.c_str(), "wb");
+        if (!empty) {
+            throw std::runtime_error("ff_sort: impossibile creare output vuoto");
+        }
+        std::fclose(empty);
+        std::cout << "File vuoto — output vuoto creato.\n";
         return 0;
     }
 
@@ -176,9 +196,8 @@ int main(int argc, char* argv[]) {
     if (pipelineMerge) {
         // Pipeline I/O asincrona: Reader a blocchi + Merger in RAM + Writer asincrono.
         // Usa un'architettura multi-pass per la sicurezza sui file descriptor.
-        if (mergeFan == 64) mergeFan = FF_MULTIPASS_MERGE_FAN_DEFAULT; // Best practice
         ffKwayMergeMultipassPipeline(runs, outputPath, nWorkers, mergeFan, deleteRuns);
-    } else if (legacyMerge) {
+    } else if (multipassMerge) {
         ffKwayMergeLegacy(runs, outputPath, nWorkers, mergeFan, deleteRuns);
     } else {
         ffKwayMerge(runs, outputPath, nWorkers, deleteRuns);

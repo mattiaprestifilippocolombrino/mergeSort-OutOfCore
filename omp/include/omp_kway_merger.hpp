@@ -61,7 +61,7 @@ inline void ompKwayMergeLegacy(
 {
     // Se non ci sono run, lancio un errore.
     if (runPaths.empty()) {
-        throw std::runtime_error("omp_kway_merge_legacy: nessuna run");
+        throw std::runtime_error("omp_kway_merge_multipass: nessuna run");
     }
 
     // Se il merge_fan è minore di 2, lo imposto a 2.
@@ -72,7 +72,7 @@ inline void ompKwayMergeLegacy(
     const bool verbose = mergeVerboseEnabled();
     if (verbose) {
         std::fprintf(stderr,
-                     "[merge] impl=omp-legacy initialRuns=%zu mergeFan=%d parallelMerge=%s\n",
+                     "[merge] impl=omp-multipass initialRuns=%zu mergeFan=%d parallelMerge=%s\n",
                      runPaths.size(), mergeFan, parallelMerge ? "yes" : "no");
     }
 
@@ -170,7 +170,7 @@ inline void ompKwayMergeLegacy(
                                 mergePass(group, outPath, deleteSource);   //Si chiama la funzione che fa il merge di un gruppo di run.
                             } catch (...) {
                                 mergeError.store(true, std::memory_order_relaxed);  //Se c'e' un errore, lo imposto. 
-                                #pragma omp critical(omp_merge_legacy_error)
+                                #pragma omp critical(omp_merge_multipass_error)
                                 {
                                     if (firstError == nullptr) {
                                         firstError = std::current_exception();
@@ -210,7 +210,7 @@ inline void ompKwayMergeLegacy(
     // Se current_level ha ancora 1 elemento e non e' gia' output_path, rinominarlo all'output finale.
     if (currentLevel.size() == 1 && currentLevel[0] != outputPath) {
         if (std::rename(currentLevel[0].c_str(), outputPath.c_str()) != 0) {
-            throw std::runtime_error("omp_kway_merge_legacy: rename finale fallito");
+            throw std::runtime_error("omp_kway_merge_multipass: rename finale fallito");
         }
     }
 }
@@ -281,12 +281,12 @@ inline void ompKwayMerge(
     /*
     Soglia HPC per evitare una passata inutile sui dati.
     Se le run sono poche rispetto ai thread disponibili, il primo livello
-    parallelo produrrebbe gruppi troppo piccoli e costringerebbe comunque
-    a una seconda passata finale sugli intermedi. In quel caso un solo
-    mergePass() diretto legge e scrive i dati una volta sola ed e' piu'
-    efficiente anche su /tmp in RAM.
+    parallelo produrrebbe gruppi da 1-2 run e costringerebbe comunque a una
+    seconda passata finale sugli intermedi. In quel caso un solo mergePass()
+    diretto legge e scrive i dati una volta sola ed e' piu' efficiente anche
+    su /tmp in RAM.
     */
-    if (runPaths.size() <= static_cast<size_t>(workers)) {
+    if (runPaths.size() <= 2 * static_cast<size_t>(workers)) {
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePassSmallInput workers=%d\n",

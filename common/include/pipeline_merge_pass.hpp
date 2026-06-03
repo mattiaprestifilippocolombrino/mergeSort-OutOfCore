@@ -44,8 +44,8 @@
 //
 // VOLUME I/O TOTALE: identico al single-thread (1 lettura + 1 scrittura di N byte).
 // COSTO CPU EXTRA:   trascurabile (confronti heap << banda I/O).
-// MIGLIORAMENTO:     la latenza I/O è completamente nascosta → throughput
-//                    limitato solo dalla banda di lettura/scrittura del disco.
+// MIGLIORAMENTO:     parte della latenza di scrittura viene sovrapposta al
+//                    merge; il throughput resta limitato da disco e memoria.
 //
 // USO
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,10 +58,10 @@
 
 #include "kway_merger.hpp"   // RunReader, HeapEntry, MERGE_BUF_SIZE, HEADER_SIZE
 
-#include <condition_variable>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <mutex>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -80,95 +80,118 @@ static constexpr size_t WRITE_BLOCK_SIZE = 32ULL * 1024 * 1024;
 // Dimensione del blocco di prefetch per ogni file di run.
 // Il Reader carica READ_BLOCK_SIZE byte per run prima che il Merger ne abbia
 // bisogno. Un blocco più grande riduce le fread, ma usa più RAM.
-// RAM totale usata: K * 2 * READ_BLOCK_SIZE (doppio buffer per K run).
-// Con K=36, READ_BLOCK_SIZE=4MB: 36 * 2 * 4MB = 288MB.
+// RAM lettura: circa K * READ_BLOCK_SIZE per merge task, piu' i buffer di
+// output descritti sotto. Con K=32 e READ_BLOCK_SIZE=4MB: circa 128MB.
 static constexpr size_t READ_BLOCK_SIZE = 4ULL * 1024 * 1024;
 
 
 // =============================================================================
-// DoubleBuffer: scambio lock-free tra due thread (produttore / consumatore)
+// DoubleBuffer: canale SPSC lock-free a due slot
 // =============================================================================
 //
 // Struttura di sincronizzazione tra esattamente 2 thread: un produttore
 // (che riempie) e un consumatore (che svuota).
 //
-// Due slot: mentre il consumatore usa lo slot A, il produttore riempie lo
-// slot B, e viceversa. Lo scambio avviene con un semplice mutex + condvar.
+// Due slot: mentre il consumatore scrive su disco lo slot A, il produttore puo'
+// riempire lo slot B. Lo scambio usa solo atomiche: niente mutex/condvar.
 //
 // Semantica:
-//   - Il produttore chiama produce(data, size): blocca finché uno slot è
-//     disponibile, copia i dati, segnala al consumatore.
-//   - Il consumatore chiama consume(outData, outSize): blocca finché un
-//     slot è pieno, prende i dati, segnala al produttore.
+//   - Il produttore chiama produce(data, size): attende uno slot libero,
+//     copia i dati, poi pubblica lo slot con store-release.
+//   - Il consumatore chiama consume(data, size): attende uno slot pieno,
+//     legge il puntatore con load-acquire, scrive su disco e poi libera lo slot.
 //   - Il produttore chiama setDone() quando ha finito di produrre.
-//   - Il consumatore vede size == 0 come segnale di fine stream.
+//   - cancel() sblocca il produttore se il Writer incontra un errore.
 // =============================================================================
 struct DoubleBuffer {
-    // Due slot di byte: il produttore scrive su uno mentre il consumatore
-    // legge dall'altro, poi si scambiano.
+    enum SlotState : int { Empty = 0, Full = 1 };
+
+    // Due slot di byte: il produttore scrive su uno mentre il consumatore usa
+    // l'altro. La proprieta' dello slot e' indicata da states[i].
     std::vector<char> slots[2];
+    size_t            slotSizes[2] = {0, 0};
+    std::atomic<int>  states[2];
 
-    // Metadati dello slot "pronto" (pieno, scritto dal produttore).
-    size_t readySize  = 0;   // Quanti byte sono validi nello slot pronto.
-    int    readySlot  = -1;  // Quale slot è pieno (-1 = nessuno).
+    int writeSlot = 0;  // Usato solo dal produttore.
+    int readSlot  = 0;  // Usato solo dal consumatore.
 
-    // Segnale di fine: il produttore lo imposta quando non produrrà più.
-    bool done = false;
-
-    std::mutex              mtx;
-    std::condition_variable cvReady;    // Segnala al consumatore: "slot pieno".
-    std::condition_variable cvConsumed; // Segnala al produttore: "slot libero".
+    std::atomic<bool> done;
+    std::atomic<bool> cancelled;
 
     explicit DoubleBuffer(size_t slotSize) {
         slots[0].resize(slotSize);
         slots[1].resize(slotSize);
+        states[0].store(Empty, std::memory_order_relaxed);
+        states[1].store(Empty, std::memory_order_relaxed);
+        done.store(false, std::memory_order_relaxed);
+        cancelled.store(false, std::memory_order_relaxed);
     }
 
     // Chiamata dal PRODUTTORE: consegna un blocco al consumatore.
     // `data` deve puntare a `size` byte validi già in memoria.
-    // Blocca se il consumatore non ha ancora preso il blocco precedente.
+    // Attende se entrambi gli slot sono ancora pieni.
     void produce(const char* data, size_t size) {
-        std::unique_lock<std::mutex> lk(mtx);
-        // Aspetta che il consumatore abbia liberato lo slot corrente.
-        cvConsumed.wait(lk, [this] { return readySlot < 0 && !done; });
+        if (size > slots[writeSlot].size()) {
+            throw std::runtime_error("DoubleBuffer: blocco piu' grande dello slot");
+        }
 
-        // Scegli lo slot disponibile (alterniamo 0 e 1).
-        readySlot = (readySlot == 0) ? 1 : 0;
-        std::memcpy(slots[readySlot].data(), data, size);
-        readySize = size;
-        cvReady.notify_one();
+        while (states[writeSlot].load(std::memory_order_acquire) != Empty) {
+            if (done.load(std::memory_order_acquire) ||
+                cancelled.load(std::memory_order_acquire)) {
+                throw std::runtime_error("DoubleBuffer: consumer non disponibile");
+            }
+            std::this_thread::yield();
+        }
+
+        if (done.load(std::memory_order_acquire) ||
+            cancelled.load(std::memory_order_acquire)) {
+            throw std::runtime_error("DoubleBuffer: consumer non disponibile");
+        }
+
+        std::memcpy(slots[writeSlot].data(), data, size);
+        slotSizes[writeSlot] = size;
+
+        // Pubblica lo slot pieno: il consumer vede prima dati e size.
+        states[writeSlot].store(Full, std::memory_order_release);
+        writeSlot = 1 - writeSlot;
     }
 
     // Chiamata dal PRODUTTORE: segnala che non ci sono più dati.
     void setDone() {
-        std::unique_lock<std::mutex> lk(mtx);
-        done = true;
-        cvReady.notify_one();
+        done.store(true, std::memory_order_release);
+    }
+
+    // Chiamata dal CONSUMATORE in caso di errore: sblocca il produttore.
+    void cancel() {
+        cancelled.store(true, std::memory_order_release);
+        done.store(true, std::memory_order_release);
     }
 
     // Chiamata dal CONSUMATORE: riceve un blocco dal produttore.
-    // Riempie `outData` con i dati e imposta `outSize`.
+    // Restituisce un puntatore allo slot interno: il chiamante deve poi
+    // invocare releaseConsumed() quando ha finito di usare il blocco.
     // Restituisce false se il produttore ha segnalato la fine del flusso.
-    bool consume(std::vector<char>& outData, size_t& outSize) {
-        std::unique_lock<std::mutex> lk(mtx);
-        // Aspetta uno slot pieno oppure il segnale di done.
-        cvReady.wait(lk, [this] { return readySlot >= 0 || done; });
-
-        if (readySlot < 0) {
-            // done=true e nessuno slot pieno: fine del flusso.
-            outSize = 0;
-            return false;
+    bool consume(const char*& data, size_t& outSize) {
+        while (states[readSlot].load(std::memory_order_acquire) != Full) {
+            if (done.load(std::memory_order_acquire) ||
+                cancelled.load(std::memory_order_acquire)) {
+                outSize = 0;
+                data = nullptr;
+                return false;
+            }
+            std::this_thread::yield();
         }
 
-        // Copia i dati dal buffer interno nel buffer del consumatore.
-        outSize = readySize;
-        if (outData.size() < outSize) { outData.resize(outSize); }
-        std::memcpy(outData.data(), slots[readySlot].data(), outSize);
-
-        // Libera lo slot per il produttore.
-        readySlot = -1;
-        cvConsumed.notify_one();
+        data = slots[readSlot].data();
+        outSize = slotSizes[readSlot];
         return true;
+    }
+
+    // Libera lo slot appena consumato.
+    void releaseConsumed() {
+        slotSizes[readSlot] = 0;
+        states[readSlot].store(Empty, std::memory_order_release);
+        readSlot = 1 - readSlot;
     }
 };
 
@@ -220,8 +243,11 @@ struct RunBlockReader {
     void advance() {
         // Assicura che il buffer abbia almeno HEADER_SIZE byte disponibili.
         if (!ensureBytes(HEADER_SIZE)) {
-            exhausted = true;
-            return;
+            if (bufSize == 0) {
+                exhausted = true;
+                return;
+            }
+            throw std::runtime_error("RunBlockReader: header troncato");
         }
 
         // Legge l'header direttamente dal buffer in RAM.
@@ -229,10 +255,16 @@ struct RunBlockReader {
         std::memcpy(&currentLen, buf.data() + bufPos + 8, sizeof(uint32_t));
         bufPos += HEADER_SIZE;
 
+        if (currentLen < 8 || currentLen > PAYLOAD_MAX) {
+            throw std::runtime_error("RunBlockReader: len fuori da [8, PAYLOAD_MAX]");
+        }
+        if (currentLen > READ_BLOCK_SIZE) {
+            throw std::runtime_error("RunBlockReader: payload piu' grande di READ_BLOCK_SIZE");
+        }
+
         // Assicura che il buffer abbia i byte del payload.
         if (!ensureBytes(currentLen)) {
-            exhausted = true;
-            return;
+            throw std::runtime_error("RunBlockReader: payload troncato");
         }
 
         // Copia il payload dal buffer in RAM (zero syscall).
@@ -322,19 +354,17 @@ struct WriteBuffer {
 // pipelineMergePass — Entry point della pipeline
 // =============================================================================
 //
-// Fonde `group` file di run ordinati in `outputPath` usando 3 thread in pipeline.
+// Fonde `group` file di run ordinati in `outputPath` con una pipeline a due
+// attori: il thread chiamante fa Reader+Merger, un Writer thread scrive l'output.
 //
-// Thread 1 (Reader, chiamante): Nessun thread dedicato per la lettura —
-//   RunBlockReader gestisce la lettura a blocchi in modo trasparente.
-//   Il Merger chiama advance() che, quando il buffer RAM è esaurito, fa
-//   automaticamente una fread() bloccante. Questo è sufficiente per piccoli K.
-//   [Nota: con K >> 10 si potrebbe aggiungere prefetch asincrono per run.]
+// Attore 1 (Reader+Merger, thread chiamante):
+//   RunBlockReader gestisce la lettura a blocchi in modo trasparente. Il Merger
+//   chiama advance() che, quando il buffer RAM è esaurito, fa una fread()
+//   bloccante. Il loop di merge resta in RAM tra una ricarica e l'altra.
 //
-// Thread 2 (Merger, thread secondario): Esegue il K-way merge dalla RAM
-//   scrivendo su WriteBuffer. Nessuna syscall I/O durante il merge.
-//
-// Thread 3 (Writer, thread terziario): Riceve blocchi dal Merger via
-//   DoubleBuffer e li scrive su disco sequenzialmente.
+// Attore 2 (Writer, std::thread):
+//   Riceve blocchi dal Merger via DoubleBuffer SPSC e li scrive su disco
+//   sequenzialmente, sovrapponendo parte della latenza I/O al merge.
 //
 // I parametri di tuning WRITE_BLOCK_SIZE e READ_BLOCK_SIZE sono in testa al file.
 //
@@ -356,7 +386,7 @@ inline void pipelineMergePass(
 
     // ── Canale Merger → Writer ───────────────────────────────────────────────
     // Il Merger produce blocchi di output ordinati. Il Writer li consuma e
-    // li scrive su disco. DoubleBuffer sincronizza i due thread.
+    // li scrive su disco. DoubleBuffer coordina i due thread con atomiche.
     DoubleBuffer outputChannel(WRITE_BLOCK_SIZE);
 
     // ── Thread WRITER ────────────────────────────────────────────────────────
@@ -371,28 +401,37 @@ inline void pipelineMergePass(
                 throw std::runtime_error("pipelineMerge: impossibile creare " + outputPath);
             } catch (...) {
                 writerError = std::current_exception();
+                outputChannel.cancel();
                 return;
             }
         }
-        // Buffer di scrittura interno: ottimizza le syscall.
-        std::setvbuf(fout, nullptr, _IOFBF, WRITE_BLOCK_SIZE);
+        bool closed = false;
+        // Scriviamo gia' blocchi grandi da WRITE_BLOCK_SIZE: evitare un altro
+        // buffer stdio riduce memoria e copie senza aumentare le syscall.
+        std::setvbuf(fout, nullptr, _IONBF, 0);
 
         try {
-            std::vector<char> block;
-            size_t            blockSize;
+            const char* block = nullptr;
+            size_t      blockSize;
             // Ciclo: riceve blocchi dal Merger finché il canale è aperto.
             while (outputChannel.consume(block, blockSize)) {
                 if (blockSize == 0) break;
-                if (std::fwrite(block.data(), 1, blockSize, fout) != blockSize) {
+                if (std::fwrite(block, 1, blockSize, fout) != blockSize) {
                     throw std::runtime_error("pipelineMerge: fwrite fallita");
                 }
+                outputChannel.releaseConsumed();
             }
             if (std::fclose(fout) != 0) {
+                closed = true;
                 throw std::runtime_error("pipelineMerge: fclose output fallita");
             }
+            closed = true;
         } catch (...) {
-            std::fclose(fout);
+            if (!closed) {
+                std::fclose(fout);
+            }
             writerError = std::current_exception();
+            outputChannel.cancel();
         }
     });
 

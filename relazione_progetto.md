@@ -101,17 +101,11 @@ Se il numero di run e' maggiore di `merge-fan`, il merge viene fatto in piu' pas
 
 Questa tecnica evita di aprire troppi file contemporaneamente e mantiene sotto controllo l'uso della RAM.
 
-### 3.3 Ottimizzazione I/O Asincrono (Multipass Pipeline)
+### 3.3 Scelta finale: merge multi-pass semplice
 
-Il collo di bottiglia principale durante il merge e' l'accesso al disco. Per massimizzare il throughput, tutte le versioni adottano una strategia ibrida denominata **Multipass Pipeline**.
-Questa tecnica incapsula il merge K-way in una primitiva asincrona a tre stadi:
+Per la versione finale si usa come strategia principale il **merge multi-pass semplice**. Questa scelta e' adatta a un cluster HPC perche' e' prevedibile: non crea thread ausiliari oltre a quelli richiesti a OpenMP/FastFlow, limita naturalmente il numero di file aperti tramite `MERGE_FAN` e mantiene l'uso di memoria sotto controllo.
 
-1. **Reader**: carica i record dal disco a blocchi (es. 4MB) per minimizzare le system call.
-2. **Merger**: opera sui blocchi in RAM usando la min-heap.
-3. **Writer**: un thread asincrono dedicato (`std::thread`) scrive i risultati su disco a grandi blocchi (es. 32MB).
-
-Mentre il Writer riversa i dati precedenti su disco, la CPU continua a unire i nuovi record in RAM. Questa sovrapposizione nasconde totalmente la latenza di scrittura su disco.
-Inoltre, combinata al Multipass, garantisce sicurezza matematica contro i limiti del sistema operativo (es. max 1024 file aperti simultaneamente), mantenendo il numero di *file descriptor* aperti strettamente al di sotto di una soglia sicura (es. 512) anche quando si parallelizzano gruppi di merge multipli in OpenMP o FastFlow.
+La variante **Multipass Pipeline** resta disponibile come confronto sperimentale. In quella versione il Merger produce blocchi ordinati e un Writer asincrono li scrive su disco usando un canale SPSC lock-free a due slot. Questa tecnica puo' sovrapporre parte della latenza di scrittura al lavoro di merge, ma introduce thread extra e quindi richiede piu' cautela su Slurm per evitare oversubscription. Per questo motivo non e' la configurazione principale della consegna.
 
 ## 4. Componenti comuni
 

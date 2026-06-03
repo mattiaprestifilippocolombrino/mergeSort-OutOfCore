@@ -4,10 +4,10 @@ Questa cartella contiene gli script per misurare speedup, efficiency, strong sca
 
 La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
-### Latenza Nascosta con Pipeline Asincrona (Nuova Versione Standard)
-La versione standard usa il merge a **pipeline asincrona** per OpenMP, FastFlow e MPI. I benchmark single-node passano `--pipeline-merge` di default, mentre i benchmark MPI usano il merge locale pipeline di default. Il merge `flat` e il multi-pass `legacy` restano disponibili solo per confronti espliciti con `OMP_FLAT_MERGE=1`, `FF_FLAT_MERGE=1`, `OMP_LEGACY_MERGE=1`, `FF_LEGACY_MERGE=1` o `MPI_LEGACY_LOCAL_MERGE=1`.
+### Merge Multi-Pass Semplice (Versione Standard)
+La versione standard usa il merge **multi-pass semplice** per OpenMP, FastFlow e MPI. I benchmark single-node passano `--multipass-merge` in modo esplicito, mentre i benchmark MPI usano il merge locale multi-pass. Il merge `flat` e la pipeline asincrona restano disponibili solo per confronti espliciti con `OMP_FLAT_MERGE=1`, `FF_FLAT_MERGE=1`, `OMP_PIPELINE=1`, `FF_PIPELINE=1`, `MPI_FLAT_LOCAL_MERGE=1` o `MPI_PIPELINE_LOCAL_MERGE=1`.
 
-La pipeline usa `pipelineMergePass()`: un writer asincrono scrive su disco blocchi sequenziali da 32MB mentre la CPU scorre l'heap in RAM e i reader caricano blocchi grandi. In questa architettura il disco resta vicino alla banda sequenziale e la latenza dei flush viene nascosta. Il tuning finale prova poche dimensioni di chunk su `manySmall50M`:
+Il multi-pass semplice usa gruppi di massimo `MERGE_FAN` run, produce eventuali intermedi e ripete finche' resta un solo file ordinato. Questa scelta e' piu' prevedibile su cluster HPC: niente writer thread extra, meno rischio di oversubscription e parametri piu' facili da spiegare. Il tuning finale prova poche combinazioni di `CHUNK_MB` e `MERGE_FAN` su `manySmall50M`:
 
 ```text
 slurm_tune_single_node.sbatch
@@ -23,7 +23,8 @@ benchmark_results/run_<jobid>/single_node_tuning_summary.csv
 Configurazione:
 
 ```bash
-CHUNK_MB_LIST="32 64 128"
+CHUNK_MB_LIST="64 128 256"
+MERGE_FAN_LIST="8 16 32"
 THREAD_LIST="1 32"
 ```
 
@@ -161,17 +162,16 @@ Quindi:
 
 ```bash
 CHUNK_MB=64
-MERGE_FAN=8
+MERGE_FAN=16
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 RUN_TIMEOUT_SECONDS=180
-OMP_PIPELINE=1
-FF_PIPELINE=1
+OMP_PIPELINE=0
+FF_PIPELINE=0
 ```
 
-`MERGE_FAN=8` resta nei CSV per compatibilita' e per eventuali run legacy, ma nella versione pipeline/flat viene stampato come non usato. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
-La validazione degli script assume `READ_BLOCK_SIZE=4MB` dalla pipeline C++ e blocca campagne con record massimi piu' grandi del blocco di lettura.
+`MERGE_FAN=16` controlla il fan-in massimo del multi-pass: piu' alto riduce le passate su disco, piu' basso riduce RAM e file descriptor per merge task. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node e serve soprattutto a non far bloccare un job FastFlow.
 
 Per i test finali con payload fino a 4096 byte lascia ricompilare gli script,
 cioe' non impostare `SKIP_BUILD=1`. Se `SKIP_BUILD=1` viene usato per run

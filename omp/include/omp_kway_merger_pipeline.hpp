@@ -28,7 +28,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //
 //   flat (default):     2 passate su disco, stage 2 seriale. Scala male.
-//   legacy (multi-pass): N passate, parallelismo sui gruppi. Inefficiente per K piccolo.
+//   multi-pass semplice: N passate, parallelismo sui gruppi. Inefficiente per K piccolo.
 //   pipeline (questo):   1 passata, Writer asincrono. Ottimale su I/O-bound.
 //
 // =============================================================================
@@ -105,10 +105,10 @@ inline void ompKwayMergePipeline(
     }
 
     // ── Caso: poche run → merge diretto in pipeline ───────────────────────────
-    // Con runPaths.size() <= nThreads un primo livello parallelo produrrebbe
-    // gruppi da 1 run sola ciascuno, che è inutile. Eseguiamo direttamente
-    // un merge singolo in pipeline: 1 passata, Writer asincrono.
-    if (runPaths.size() <= static_cast<size_t>(nThreads)) {
+    // Con runPaths.size() <= 2*nThreads un primo livello parallelo produrrebbe
+    // gruppi da 1-2 run e poi un merge finale: doppia passata su disco per poco
+    // lavoro CPU. Eseguiamo direttamente un merge singolo in pipeline.
+    if (runPaths.size() <= 2 * static_cast<size_t>(nThreads)) {
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] level=1 runs=%zu mode=directPipeline\n",

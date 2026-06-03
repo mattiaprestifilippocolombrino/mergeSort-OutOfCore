@@ -15,7 +15,7 @@ DATA_DIR="${DATA_DIR:-$TMP_BASE/spm_benchmark_data}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 CHUNK_MB="${CHUNK_MB:-64}"
-MERGE_FAN="${MERGE_FAN:-8}"
+MERGE_FAN="${MERGE_FAN:-16}"
 TRIALS="${TRIALS:-1}"
 VERIFY="${VERIFY:-0}"
 SEED="${SEED:-42}"
@@ -63,6 +63,10 @@ validate_benchmark_config() {
     require_positive_uint "PAYLOAD_MAX_BUILD" "$PAYLOAD_MAX_BUILD"
     require_positive_uint "CHUNK_MB" "$CHUNK_MB"
     require_positive_uint "MERGE_FAN" "$MERGE_FAN"
+    if (( MERGE_FAN < 2 )); then
+        log "MERGE_FAN deve essere >= 2, valore ricevuto: $MERGE_FAN"
+        return 2
+    fi
     require_positive_uint "TRIALS" "$TRIALS"
     require_uint "RUN_TIMEOUT_SECONDS" "$RUN_TIMEOUT_SECONDS"
 
@@ -74,12 +78,14 @@ validate_benchmark_config() {
         return 2
     fi
 
-    local pipeline_read_mb=4
-    local pipeline_read_bytes=$((pipeline_read_mb * 1024 * 1024))
-    if (( min_record_bytes > pipeline_read_bytes )); then
-        log "PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD supera il blocco di lettura pipeline (${pipeline_read_mb}MB)"
-        log "Riduci PAYLOAD_MAX_BUILD o aumenta READ_BLOCK_SIZE in common/include/pipeline_merge_pass.hpp."
-        return 2
+    if [[ "${OMP_PIPELINE:-0}" == "1" || "${FF_PIPELINE:-0}" == "1" || "${MPI_PIPELINE_LOCAL_MERGE:-0}" == "1" ]]; then
+        local pipeline_read_mb=4
+        local pipeline_read_bytes=$((pipeline_read_mb * 1024 * 1024))
+        if (( min_record_bytes > pipeline_read_bytes )); then
+            log "PAYLOAD_MAX_BUILD=$PAYLOAD_MAX_BUILD supera il blocco di lettura pipeline (${pipeline_read_mb}MB)"
+            log "Riduci PAYLOAD_MAX_BUILD o aumenta READ_BLOCK_SIZE in common/include/pipeline_merge_pass.hpp."
+            return 2
+        fi
     fi
 
     local threads

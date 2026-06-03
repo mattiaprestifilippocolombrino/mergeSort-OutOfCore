@@ -199,6 +199,7 @@ inline std::vector<std::string> sortRangeToRuns(
         std::fclose(fin);
         throw std::runtime_error("sort_to_runs: seek iniziale fallita");
     }
+    int64_t currentOffset = startOffset;
 
     // Si utilizza un buffer di lettura grande (4MB) per ridurre il numero di syscall.
     std::setvbuf(fin, nullptr, _IOFBF, 4 * 1024 * 1024);
@@ -226,7 +227,7 @@ inline std::vector<std::string> sortRangeToRuns(
 Un solo thread legge il file e crea i chunk, mentre gli altri thread eseguono i task di ordinamento e scrittura.
 Le variabili condivise sono: fin, tmp_dir, chunk_bytes, run_paths, error_flag, end_offset, task_window.
 */    
-    #pragma omp parallel default(none) shared(fin, tmpDir, chunkBytes, runPaths, errorFlag, endOffset, taskWindow)
+    #pragma omp parallel default(none) shared(fin, tmpDir, chunkBytes, runPaths, errorFlag, endOffset, taskWindow, currentOffset)
     #pragma omp single
     {
         int runId    = 0; // Id progressivo delle run generate.
@@ -240,10 +241,8 @@ Le variabili condivise sono: fin, tmp_dir, chunk_bytes, run_paths, error_flag, e
             }
 
             // Nella versione MPI se si supera il limite di chunk da leggere, si smette.
-            // Si legge l'offset corrente e si confronta con l'offset di fine. Se e' maggiore, si smette.
             if (endOffset >= 0) {
-                off_t pos = ftello(fin);
-                if (pos < 0 || pos >= static_cast<off_t>(endOffset)) {
+                if (currentOffset >= endOffset) {
                     break;
                 }
             }
@@ -272,8 +271,7 @@ Le variabili condivise sono: fin, tmp_dir, chunk_bytes, run_paths, error_flag, e
 
                     // Nella versione MPI controllo il limite di stripe.
                     if (endOffset >= 0) {
-                        off_t pos = ftello(fin);
-                        if (pos < 0 || pos >= static_cast<off_t>(endOffset)) {
+                        if (currentOffset >= endOffset) {
                             eofReached = true;
                             break;
                         }
@@ -298,12 +296,13 @@ Le variabili condivise sono: fin, tmp_dir, chunk_bytes, run_paths, error_flag, e
                     //Fa un passo indietro di HEADER_SIZE, cioè torna prima dell’header, e termina.
                     // In questo modo evita di produrre un record spezzato. 
                     if (endOffset >= 0) {
-                        off_t afterHeader = ftello(fin);
-                        int64_t recStart  = static_cast<int64_t>(afterHeader) - HEADER_SIZE;
+                        const int64_t recStart = currentOffset;
 
                         if (recStart + static_cast<int64_t>(totalRecordSize) > endOffset) {
                             // Il record sconfina oltre la stripe: torno indietro.
-                            fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR);
+                            if (fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR) != 0) {
+                                throw std::runtime_error("sort_to_runs: rollback stripe fallito");
+                            }
                             eofReached = true;
                             break;
                         }
@@ -316,7 +315,9 @@ Allora torno indietro di HEADER_SIZE (cioè mi riposiziono all’inizio dell’h
 L’iterazione successiva del while userà un nuovo buffer di chunk_bytes e rileggerà quel record per primo.
 */
                     if (bufUsed + totalRecordSize > chunkBytes) {
-                        fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR);
+                        if (fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR) != 0) {
+                            throw std::runtime_error("sort_to_runs: rollback chunk fallito");
+                        }
                         break;
                     }
 
@@ -339,6 +340,7 @@ L’iterazione successiva del while userà un nuovo buffer di chunk_bytes e rile
 
                     // Aumento buf_used di hdr.len.
                     bufUsed += hdr.len;
+                    currentOffset += static_cast<int64_t>(totalRecordSize);
 
                     // Salvo in RecordIndex tutti i dati relativi al record, compreso l'offset da dove inizia il record nel buffer del chunk.
                     // Si inserisce il RecordIndex nell'indice del chunk.

@@ -53,7 +53,6 @@ Architettura del merge parallelo con ff::ParallelFor:
 #include <algorithm>
 #include <memory>
 #include <exception>
-#include <mutex>
 
 /*
 Orchestratore del merge multi-pass.
@@ -87,7 +86,7 @@ inline void ffKwayMergeLegacy(
     const bool verbose = mergeVerboseEnabled();
     if (verbose) {
         std::fprintf(stderr,
-                     "[merge] impl=fastflow-legacy initialRuns=%zu mergeFan=%d parallelMerge=yes workers=%d\n",
+                     "[merge] impl=fastflow-multipass initialRuns=%zu mergeFan=%d parallelMerge=yes workers=%d\n",
                      runPaths.size(), mergeFan, nWorkers);
     }
 
@@ -123,6 +122,7 @@ inline void ffKwayMergeLegacy(
     std::unique_ptr<ff::ParallelFor> pf;
     if (runPaths.size() > static_cast<size_t>(mergeFan) && nWorkers > 1) {
         pf = std::make_unique<ff::ParallelFor>(nWorkers, false);
+        pf->no_mapping();
     }
 
     // While che itera fino a ridurre il numero di run da fondere ad una sola run finale.
@@ -156,8 +156,7 @@ inline void ffKwayMergeLegacy(
         if (numGroups > 1 && pf) {
             
             std::atomic<bool> mergeError{false};     // Flag atomico per propagare eccezioni dai thread worker al thread principale.
-            std::exception_ptr firstError = nullptr;
-            std::mutex errorMutex;
+            std::vector<std::exception_ptr> groupErrors(numGroups);
 
             
 
@@ -200,22 +199,19 @@ Le variabili catturate per riferimento sono thread-safe perche':
                     // Dai pass successivi i file intermedi vanno sempre cancellati.
                     bool deleteSource = (pass > 1) || deleteRuns;
 
-                    try {
-                        mergePass(group, nextLevel[g], deleteSource);   // Chiama la funzione merge_pass con il gruppo di run e il path del file di output intermedio.
-                    } catch (...) {
-                        mergeError.store(true, std::memory_order_relaxed);   // In caso di errore, imposta mergeError a true.
-                        std::lock_guard<std::mutex> lock(errorMutex);
-                        if (firstError == nullptr) {
-                            firstError = std::current_exception();
-                        }
-                    }
-                }
-            );
+	                    try {
+	                        mergePass(group, nextLevel[g], deleteSource);   // Chiama la funzione merge_pass con il gruppo di run e il path del file di output intermedio.
+	                    } catch (...) {
+	                        mergeError.store(true, std::memory_order_relaxed);   // In caso di errore, imposta mergeError a true.
+	                        groupErrors[static_cast<size_t>(g)] = std::current_exception();
+	                    }
+	                }
+	            );
 
-            // Controllo se c'e' un errore in uno dei worker.
-            if (firstError != nullptr) {
-                std::rethrow_exception(firstError);
-            }
+	            // Controllo se c'e' un errore in uno dei worker.
+	            for (const auto& err : groupErrors) {
+	                if (err) std::rethrow_exception(err);
+	            }
 
         } else {     // Se c'e' un solo gruppo, lo eseguiamo direttamente senza overhead di parallelismo.
             for (int g = 0; g < numGroups; g++) {
@@ -328,11 +324,11 @@ inline void ffKwayMerge(
     /*
     Soglia HPC per evitare una passata inutile sui dati.
     Se le run sono poche rispetto ai worker disponibili, il primo livello
-    parallelo produrrebbe intermedi troppo piccoli e il merge finale
-    obbligherebbe a rileggere e riscrivere gli stessi record. In questo caso
-    un singolo mergePass() diretto e' piu' efficiente e piu' stabile.
+    parallelo produrrebbe gruppi da 1-2 run e il merge finale obbligherebbe a
+    rileggere e riscrivere gli stessi record. In questo caso un singolo
+    mergePass() diretto e' piu' efficiente e piu' stabile.
     */
-    if (runPaths.size() < 2 * static_cast<size_t>(workers)) {
+    if (runPaths.size() <= 2 * static_cast<size_t>(workers)) {
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] level=1 runs=%zu groups=1 tasks=0 mode=singleMergePassSmallInput workers=%d\n",
@@ -364,9 +360,9 @@ inline void ffKwayMerge(
     }
 
     ff::ParallelFor pf(workers, false);
+    pf.no_mapping();
     std::atomic<bool> mergeError{false};
-    std::exception_ptr firstError = nullptr;
-    std::mutex errorMutex;
+    std::vector<std::exception_ptr> groupErrors(groups);
 
     /*
     Ogni iterazione del parallel_for corrisponde a un worker logico.
@@ -387,16 +383,13 @@ inline void ffKwayMerge(
                 mergePass(group, intermediateFiles[groupIdx], deleteRuns);
             } catch (...) {
                 mergeError.store(true, std::memory_order_relaxed);
-                std::lock_guard<std::mutex> lock(errorMutex);
-                if (firstError == nullptr) {
-                    firstError = std::current_exception();
-                }
+                groupErrors[static_cast<size_t>(groupIdx)] = std::current_exception();
             }
         }
     );
 
-    if (firstError != nullptr) {
-        std::rethrow_exception(firstError);
+    for (const auto& err : groupErrors) {
+        if (err) std::rethrow_exception(err);
     }
 
     if (verbose) {

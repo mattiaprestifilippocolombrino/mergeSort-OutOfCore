@@ -11,6 +11,7 @@ INPUT_FILE="/tmp/test_data.bin"
 OUTPUT_FILE="/tmp/sorted_output.bin"
 RECORDS=5000000        # Circa 1GB di dati (media 200B a record)
 CHUNK_MB=128           # Dimensione chunk (influisce sul numero di run temporanee)
+MERGE_FAN=16           # Fan-in multi-pass: bilancia passate, RAM e file descriptor
 THREADS=$(nproc)       # Usa tutti i core disponibili
 TMP_DIR="/tmp"
 
@@ -45,21 +46,21 @@ run_test() {
 }
 
 # --- TEST 1: OpenMP ---
-run_test "OpenMP (Shared Memory Tasks + Pipeline I/O)" \
-    "./build/omp_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $THREADS --tmp-dir $TMP_DIR --pipeline-merge"
+run_test "OpenMP (Shared Memory Tasks + Multi-pass merge)" \
+    "./build/omp_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $THREADS --tmp-dir $TMP_DIR --multipass-merge --merge-fan $MERGE_FAN"
 
 # --- TEST 2: FastFlow ---
-run_test "FastFlow (Farm + ParallelFor + Pipeline I/O)" \
-    "./build/ff_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --workers $THREADS --tmp-dir $TMP_DIR --pipeline-merge"
+run_test "FastFlow (Farm + ParallelFor + Multi-pass merge)" \
+    "./build/ff_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --workers $THREADS --tmp-dir $TMP_DIR --multipass-merge --merge-fan $MERGE_FAN"
 
 # --- TEST 3: MPI (2 Rank) ---
 # Simuliamo un ambiente distribuito su macchina locale con 2 processi MPI
-run_test "MPI (Distributed - 2 Processi, $((THREADS/2)) threads ciascuno, Pipeline locale)" \
-    "mpirun --oversubscribe -n 2 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/2)) --tmp-dir $TMP_DIR --pipeline-local-merge"
+run_test "MPI (Distributed - 2 Processi, $((THREADS/2)) threads ciascuno, Multi-pass locale)" \
+    "mpirun --oversubscribe -n 2 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/2)) --tmp-dir $TMP_DIR --multipass-local-merge --merge-fan $MERGE_FAN"
 
 # --- TEST 4: MPI (4 Rank) ---
-run_test "MPI (Distributed - 4 Processi, $((THREADS/4)) threads ciascuno, Pipeline locale)" \
-    "mpirun --oversubscribe -n 4 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/4)) --tmp-dir $TMP_DIR --pipeline-local-merge"
+run_test "MPI (Distributed - 4 Processi, $((THREADS/4)) threads ciascuno, Multi-pass locale)" \
+    "mpirun --oversubscribe -n 4 ./build/mpi_sort $INPUT_FILE $OUTPUT_FILE --chunk-mb $CHUNK_MB --threads $((THREADS/4)) --tmp-dir $TMP_DIR --multipass-local-merge --merge-fan $MERGE_FAN"
 
 echo -e "\n=== Benchmark completato! ==="
 rm -f $INPUT_FILE

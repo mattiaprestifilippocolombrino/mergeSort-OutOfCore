@@ -115,7 +115,9 @@ struct FFEmitter : ff_monode_t<ChunkData> {
                     Così quel record non viene perso: verrà letto nel chunk successivo.
                     */
                     if (bufUsed + totalRecordSize > chunkBytes) {
-                        fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR); // Torna indietro di HEADER_SIZE byte.
+                        if (fseeko(fin, -static_cast<off_t>(HEADER_SIZE), SEEK_CUR) != 0) {
+                            throw std::runtime_error("ff_sort_to_runs: rollback chunk fallito");
+                        }
                         break; // Esce dal ciclo.
                     }
 

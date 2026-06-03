@@ -32,7 +32,8 @@
 // Identica a omp_kway_merger_multipass_pipeline.hpp:
 //   - Loop multipass con ff::ParallelFor per i gruppi
 //   - pipelineMergePass() come motore I/O asincrono per ogni gruppo
-//   - Garanzia FD: safeWorkers × (mergeFan + 1) ≤ FF_MULTIPASS_OPEN_FILES_SAFE
+//   - Garanzia FD:  safeWorkers × (mergeFan + 1) ≤ FF_MULTIPASS_OPEN_FILES_SAFE
+//   - Garanzia CPU: safeWorkers × 2 circa ≤ worker FastFlow richiesti
 //
 // =============================================================================
 
@@ -44,7 +45,7 @@
 #include <algorithm>
 #include <atomic>
 #include <exception>
-#include <mutex>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -64,8 +65,13 @@ inline int ffSafeConcurrentWorkers(int mergeFan, int availableWorkers)
 {
     if (mergeFan < 1)         mergeFan         = 1;
     if (availableWorkers < 1) availableWorkers = 1;
-    const int maxSafe = FF_MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1);
-    return std::max(1, std::min(availableWorkers, maxSafe));
+
+    // Ogni pipelineMergePass usa il worker FastFlow chiamante e un Writer
+    // std::thread. Limitare i merge task a circa meta' dei worker evita
+    // oversubscription sui core assegnati da Slurm.
+    const int maxByFd  = FF_MULTIPASS_OPEN_FILES_SAFE / (mergeFan + 1);
+    const int maxByCpu = std::max(1, availableWorkers / 2);
+    return std::max(1, std::min(maxByCpu, maxByFd));
 }
 
 // Helper: ricava la directory temporanea dal path della prima run.
@@ -125,6 +131,8 @@ inline void ffKwayMergeMultipassPipeline(
 
     // ── Caso ottimale: tutte le run entrano in un singolo merge ───────────────
     // 1 sola pipelineMergePass(): 1 passata su disco, zero file intermedi.
+    // Qui la soglia resta mergeFan, non 2*nWorkers: mergeFan e' anche il limite
+    // dichiarato di fan-in, memoria per reader e file descriptor per merge task.
     if (static_cast<int>(runPaths.size()) <= mergeFan) {
         if (verbose) {
             std::fprintf(stderr,
@@ -142,16 +150,24 @@ inline void ffKwayMergeMultipassPipeline(
     std::vector<std::string> currentLevel = runPaths;
     int pass = 0;
 
+    std::unique_ptr<ff::ParallelFor> pf;
+    if (safeWorkers > 1) {
+        pf = std::make_unique<ff::ParallelFor>(safeWorkers, false);
+        pf->no_mapping();
+    }
+
     while (static_cast<int>(currentLevel.size()) > mergeFan) {
         ++pass;
         const int R         = static_cast<int>(currentLevel.size());
         const int numGroups = (R + mergeFan - 1) / mergeFan;
+        const int activeWorkers = std::min(safeWorkers, numGroups);
 
         if (verbose) {
             std::fprintf(stderr,
                          "[merge] pass=%d runs=%d groups=%d activeWorkers=%d"
-                         " mode=ffParallelPipelinePass\n",
-                         pass, R, numGroups, std::min(safeWorkers, numGroups));
+                         " mode=%s\n",
+                         pass, R, numGroups, activeWorkers,
+                         activeWorkers > 1 ? "ffParallelPipelinePass" : "ffSerialPipelinePass");
         }
 
         // Prepara i file intermedi per questa passata.
@@ -165,22 +181,9 @@ inline void ffKwayMergeMultipassPipeline(
 
         // Strutture per la propagazione sicura degli errori tra i worker FF.
         std::atomic<bool>  hadError{false};
-        std::exception_ptr firstError;
-        std::mutex         errorMutex;
+        std::vector<std::exception_ptr> groupErrors(numGroups);
 
-        // ── ff::ParallelFor sui gruppi ────────────────────────────────────────
-        //
-        // Il secondo argomento (false) disabilita il CPU pinning interno di FF.
-        // Questo evita conflitti di affinità con il pinning già impostato dalla
-        // farm della Fase 1 (sort dei chunk).
-        //
-        // safeWorkers garantisce che il numero totale di file aperti in
-        // contemporanea non superi FF_MULTIPASS_OPEN_FILES_SAFE.
-        ff::ParallelFor pf(safeWorkers, false);
-        pf.no_mapping(); // [CRITICAL FIX] Disabilita il CPU pinning interno per evitare crash con Slurm cgroups.
-
-        pf.parallel_for(0, numGroups, 1, 0,
-            [&](const long g) {
+        auto mergeGroup = [&](const long g) {
                 if (hadError.load(std::memory_order_relaxed)) return;
 
                 const int begin = static_cast<int>(g) * mergeFan;
@@ -193,18 +196,26 @@ inline void ffKwayMergeMultipassPipeline(
 
                 try {
                     // PUNTO FORTE PIPELINE: lettura a blocchi + Writer asincrono.
-                    // Il worker FF non aspetta mai il disco: la latenza I/O
-                    // è nascosta dal thread Writer interno a pipelineMergePass().
+                    // Il Writer interno sovrappone parte della latenza I/O al
+                    // lavoro di merge del worker FastFlow.
                     pipelineMergePass(group, nextLevel[static_cast<size_t>(g)], delSrc);
                 } catch (...) {
                     hadError.store(true, std::memory_order_relaxed);
-                    std::lock_guard<std::mutex> lk(errorMutex);
-                    if (!firstError) firstError = std::current_exception();
+                    groupErrors[static_cast<size_t>(g)] = std::current_exception();
                 }
-            }
-        );
+            };
 
-        if (firstError) std::rethrow_exception(firstError);
+        if (activeWorkers > 1 && pf) {
+            pf->parallel_for(0, numGroups, 1, 0, mergeGroup);
+        } else {
+            for (int g = 0; g < numGroups; ++g) {
+                mergeGroup(g);
+            }
+        }
+
+        for (const auto& err : groupErrors) {
+            if (err) std::rethrow_exception(err);
+        }
 
         currentLevel = std::move(nextLevel);
     }

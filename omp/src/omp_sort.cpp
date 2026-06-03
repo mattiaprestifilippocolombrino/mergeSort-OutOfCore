@@ -8,9 +8,11 @@
 //   --chunk-mb     N     Dimensione del blocco in RAM per ogni run (default: 256 MB)
 //   --threads      N     Numero di thread OpenMP (default: max hw)
 //   --tmp-dir      PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan    N     Fan-in massimo solo per --legacy-merge (default: 64)
-//   --legacy-merge       Usa il vecchio merge multi-pass a livelli
-//   --pipeline-merge     Usa il merge in pipeline I/O asincrona (raccomandato)
+//   --merge-fan    N     Fan-in massimo del merge multi-pass (default: 16)
+//   --multipass-merge    Usa merge multi-pass semplice (default)
+//   --legacy-merge       Alias storico di --multipass-merge
+//   --flat-merge         Usa merge flat a due stadi
+//   --pipeline-merge     Usa il merge in pipeline I/O asincrona
 //   --no-par-merge       Disabilita merge parallelo
 //   --keep-runs          Non eliminare i file di run dopo il merge (debug)
 //
@@ -28,20 +30,19 @@
 //
 // FASE 2  —  selezione dell'algoritmo di merge [tre implementazioni]:
 //
-//   A) --legacy-merge    [omp_kway_merger.hpp]          — multi-pass a livelli (storico)
-//   B) (default)         [omp_kway_merger.hpp]          — flat a due stadi (parallelo + seriale)
-//   C) --pipeline-merge  [omp_kway_merger_pipeline.hpp] — pipeline I/O asincrona (raccomandato)
+//   A) default/multipass [omp_kway_merger.hpp]          — multi-pass semplice
+//   B) --flat-merge      [omp_kway_merger.hpp]          — flat a due stadi
+//   C) --pipeline-merge  [omp_kway_merger_pipeline.hpp] — pipeline I/O asincrona
 //
-//   La versione pipeline nasconde la latenza I/O: il Writer scrive su disco
-//   mentre il Merger lavora in RAM. Unica passata sui dati.
+//   La versione standard usa il merge multi-pass semplice: piu' prevedibile su
+//   cluster HPC e senza thread extra. La pipeline resta disponibile per confronto.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // PARALLELISMO
 // ─────────────────────────────────────────────────────────────────────────────
 //   Fase 1: ogni chunk è ordinato in un task OMP → parallelismo CPU.
-//   Fase 2: i thread fondono blocchi disgiunti di run; poi il main thread
-//           esegue il merge finale degli intermedi. Il numero di passate su
-//           disco e' ridotto al minimo, utile su /tmp locale dei nodi HPC.
+//   Fase 2: i thread fondono gruppi indipendenti di run nel multi-pass.
+//           Il fan-in limita file descriptor, RAM e numero di passate.
 //
 // =============================================================================
 
@@ -53,7 +54,9 @@
 #include <iostream>
 #include <string>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <omp.h>
 
 // Restituisce la durata in secondi tra due time_point.
@@ -68,10 +71,12 @@ static void usage(const char* prog) {
               << "  --chunk-mb     N     Dimensione chunk in MB      (default: 256)\n"
               << "  --threads      N     Thread OpenMP               (default: max hw)\n"
               << "  --tmp-dir      PATH  Directory file temporanei   (default: /tmp)\n"
-              << "  --merge-fan    N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
-              << "  --legacy-merge       Usa il vecchio merge multi-pass a livelli\n"
-              << "  --pipeline-merge     Pipeline I/O asincrona + Multipass safe — raccomandato\n"
-              << "  --no-par-merge       Disabilita merge parallelo (solo flat/legacy)\n"
+              << "  --merge-fan    N     Fan-in per merge multi-pass  (default: 16)\n"
+              << "  --multipass-merge    Usa merge multi-pass semplice (default)\n"
+              << "  --legacy-merge       Alias storico di --multipass-merge\n"
+              << "  --flat-merge         Usa merge flat a due stadi\n"
+              << "  --pipeline-merge     Usa Multipass Pipeline con Writer asincrono\n"
+              << "  --no-par-merge       Disabilita merge parallelo (solo flat/multipass)\n"
               << "  --keep-runs          Non eliminare le run (debug)\n";
     std::exit(1);
 }
@@ -81,20 +86,19 @@ int main(int argc, char* argv[]) {
         usage(argv[0]);
     }
 
-    // Parametri di default:
-    // chunk grande abbastanza da sfruttare std::sort su blocchi corposi.
-    // Il nuovo merge OpenMP non usa merge_fan: divide le run tra i thread e
-    // fa una sola passata finale. mergeFan resta solo per --legacy-merge.
+    // Parametri di default: chunk corposo e merge multi-pass semplice.
+    // Questa e' la configurazione principale per la consegna HPC.
     std::string inputPath  = argv[1];
     std::string outputPath = argv[2];
     std::string tmpDir     = "/tmp";
     size_t      chunkMb    = 256;
     int         nThreads    = omp_get_max_threads();
-    int         mergeFan   = 64;
+    int         mergeFan   = 16;
     bool        keepRuns        = false;
     bool        parallelMerge   = true;
-    bool        legacyMerge     = false;
+    bool        multipassMerge  = true;
     bool        pipelineMerge   = false;  // --pipeline-merge: I/O asincrona
+    bool        mergeFanExplicit = false;
 
     // Parsing semplice e diretto delle opzioni.
     // Mantengo nomi e parametri uguali tra versioni OMP, FF e MPI: rende piu'
@@ -110,12 +114,16 @@ int main(int argc, char* argv[]) {
             tmpDir = argv[++i];
         } else if (a == "--merge-fan" && i + 1 < argc) {
             mergeFan = std::stoi(argv[++i]);
-        } else if (a == "--legacy-merge") {
-            legacyMerge   = true;
+            mergeFanExplicit = true;
+        } else if (a == "--legacy-merge" || a == "--multipass-merge") {
+            multipassMerge = true;
+            pipelineMerge = false;
+        } else if (a == "--flat-merge") {
+            multipassMerge = false;
             pipelineMerge = false;
         } else if (a == "--pipeline-merge") {
             pipelineMerge = true;
-            legacyMerge   = false;
+            multipassMerge = false;
         } else if (a == "--no-par-merge") {
             parallelMerge = false;
         } else if (a == "--keep-runs") {
@@ -135,14 +143,18 @@ int main(int argc, char* argv[]) {
     // Converto chunk_mb in byte (1 MB = 1024 * 1024 byte).
     const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL;
 
+    if (pipelineMerge && !mergeFanExplicit) {
+        mergeFan = MULTIPASS_MERGE_FAN_DEFAULT;
+    }
+
     // Ogni esecuzione usa una sottodirectory temporanea unica.
     // Se keep_runs=false viene cancellata automaticamente dal distruttore.
     TempDir workTmp(tmpDir, "spm_omp", keepRuns);
 
     // Determina la stringa descrittiva dell'implementazione di merge scelta.
     const char* mergeImplName = pipelineMerge ? "pipeline async I/O" :
-                                legacyMerge   ? "legacy multi-pass"  :
-                                                "flat two-stage";
+                                multipassMerge ? "simple multi-pass" :
+                                                 "flat two-stage";
 
     std::cout << "=== OMP MergeSort out-of-core ===\n"
               << "  input        : " << inputPath        << "\n"
@@ -150,7 +162,7 @@ int main(int argc, char* argv[]) {
               << "  chunk        : " << chunkMb          << " MB\n"
               << "  threads      : " << nThreads          << "\n"
               << "  merge impl   : " << mergeImplName    << "\n"
-              << "  merge fan-in : " << (legacyMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+              << "  merge fan-in : " << (multipassMerge || pipelineMerge ? std::to_string(mergeFan) : "non usato") << "\n"
               << "  merge paral. : " << (parallelMerge ? "si" : "no") << "\n"
               << "  tmp          : " << workTmp.str()    << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX       << " B\n\n";
@@ -169,7 +181,12 @@ int main(int argc, char* argv[]) {
               << seconds(t0, t1) << " s\n";
 
     if (runs.empty()) {
-        std::cout << "File vuoto — output non creato.\n";
+        FILE* empty = std::fopen(outputPath.c_str(), "wb");
+        if (!empty) {
+            throw std::runtime_error("omp_sort: impossibile creare output vuoto");
+        }
+        std::fclose(empty);
+        std::cout << "File vuoto — output vuoto creato.\n";
         return 0;
     }
 
@@ -182,10 +199,9 @@ int main(int argc, char* argv[]) {
     if (pipelineMerge) {
         // Pipeline I/O asincrona: Reader a blocchi + Merger in RAM + Writer asincrono.
         // Usa un'architettura multi-pass per garantire la sicurezza sui file descriptor.
-        if (mergeFan == 64) mergeFan = MULTIPASS_MERGE_FAN_DEFAULT; // Applica best practice se default
         ompKwayMergeMultipassPipeline(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns);
-    } else if (legacyMerge) {
-        // Multi-pass a livelli con task OMP (storico).
+    } else if (multipassMerge) {
+        // Multi-pass semplice a livelli con task OMP: default finale.
         ompKwayMergeLegacy(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
                            /*parallelMerge=*/parallelMerge);
     } else {

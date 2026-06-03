@@ -56,14 +56,15 @@ run_impl() {
 
     if [[ "$impl" == "omp" ]]; then
         local omp_merge_args=()
-        if [[ "${OMP_LEGACY_MERGE:-0}" == "1" ]]; then
-            omp_merge_args+=(--legacy-merge)
-            merge_impl="omp_legacy"
-        elif [[ "${OMP_FLAT_MERGE:-0}" == "1" || "${OMP_PIPELINE:-1}" != "1" ]]; then
-            merge_impl="omp_flat"
-        else
+        if [[ "${OMP_PIPELINE:-0}" == "1" ]]; then
             omp_merge_args+=(--pipeline-merge)
             merge_impl="omp_pipeline"
+        elif [[ "${OMP_FLAT_MERGE:-0}" == "1" ]]; then
+            omp_merge_args+=(--flat-merge)
+            merge_impl="omp_flat"
+        else
+            omp_merge_args+=(--multipass-merge)
+            merge_impl="omp_multipass"
         fi
 
         if ! run_and_capture_sort "$log_file" \
@@ -78,14 +79,15 @@ run_impl() {
         fi
     else
         local ff_merge_args=()
-        if [[ "${FF_LEGACY_MERGE:-0}" == "1" ]]; then
-            ff_merge_args+=(--legacy-merge)
-            merge_impl="ff_legacy"
-        elif [[ "${FF_FLAT_MERGE:-0}" == "1" || "${FF_PIPELINE:-1}" != "1" ]]; then
-            merge_impl="ff_flat"
-        else
+        if [[ "${FF_PIPELINE:-0}" == "1" ]]; then
             ff_merge_args+=(--pipeline-merge)
             merge_impl="ff_pipeline"
+        elif [[ "${FF_FLAT_MERGE:-0}" == "1" ]]; then
+            ff_merge_args+=(--flat-merge)
+            merge_impl="ff_flat"
+        else
+            ff_merge_args+=(--multipass-merge)
+            merge_impl="ff_multipass"
         fi
 
         if ! run_and_capture_sort "$log_file" \

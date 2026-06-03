@@ -22,11 +22,11 @@ OUTPUT=$2
 
 # Compilazione se necessaria
 echo "[Tuning] Verifica binario OMP..."
-if [ ! -f "build/omp/omp_sort" ]; then
+if [ ! -x "build/omp_sort" ]; then
     mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j4 && cd ..
 fi
 
-BIN="./build/omp/omp_sort"
+BIN="./build/omp_sort"
 
 if [ ! -x "$BIN" ]; then
     echo "[Errore] Binario $BIN non trovato o non eseguibile."
@@ -35,7 +35,7 @@ fi
 
 # Spazio di esplorazione dei parametri
 CHUNK_SIZES=(64 128 256)
-MERGE_FANS=(16 32 64)
+MERGE_FANS=(8 16 32)
 
 # File di report temporaneo
 REPORT="tuning_report.txt"
@@ -58,9 +58,9 @@ for CHUNK in "${CHUNK_SIZES[@]}"; do
         # Elimina file precedenti per evitare cache hit spurie a livello OS, se possibile
         rm -f "$OUTPUT"
         
-        # Esegui con la nuova pipeline multipass (--pipeline-merge)
+        # Esegui con il merge multi-pass semplice (--multipass-merge)
         # Catturiamo lo stderr/stdout per estrarre i tempi
-        LOG=$( $BIN "$INPUT" "$OUTPUT" --chunk-mb $CHUNK --merge-fan $FAN --pipeline-merge 2>&1 )
+        LOG=$( $BIN "$INPUT" "$OUTPUT" --chunk-mb $CHUNK --merge-fan $FAN --multipass-merge 2>&1 )
         
         # Estrazione tempi (basato sull'output standard di omp_sort)
         T_FASE1=$(echo "$LOG" | grep "Sort parallelo (Fase 1)" | grep -oE '[0-9]+(\.[0-9]+)?')

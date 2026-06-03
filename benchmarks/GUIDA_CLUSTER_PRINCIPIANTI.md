@@ -99,17 +99,21 @@ troppo piccolo.
 
 ## 4. Cosa significano Fase 1 e Fase 2
 
-Gli script usano il merge **pipeline** come modalita' standard:
+Gli script usano il merge **multi-pass semplice** come modalita' standard:
 
-- OpenMP e FastFlow passano `--pipeline-merge` di default.
-- MPI usa il merge locale pipeline di default.
-- Il parametro `MERGE_FAN` regola il limite di file descriptor aperti dalla Multipass Pipeline.
+- OpenMP e FastFlow passano `--multipass-merge` in modo esplicito.
+- MPI usa il merge locale multi-pass di default.
+- Il parametro `MERGE_FAN` regola il fan-in del K-way merge multi-pass.
 
-Per confrontare con la vecchia modalita' flat puoi impostare:
+Per confrontare con le altre modalita' puoi impostare:
 
 ```bash
 OMP_FLAT_MERGE=1
 FF_FLAT_MERGE=1
+OMP_PIPELINE=1
+FF_PIPELINE=1
+MPI_PIPELINE_LOCAL_MERGE=1
+MPI_FLAT_LOCAL_MERGE=1
 ```
 
 OpenMP e FastFlow single-node:
@@ -203,7 +207,6 @@ RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -229,7 +232,6 @@ RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-OMP_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -257,7 +259,6 @@ RUN_OMP=0 RUN_FF=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
-FF_PIPELINE=1 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=180 \
 FF_ROOT="$HOME/fastFlow" \
@@ -276,10 +277,22 @@ tail -n 80 "$RUN_DIR"/logs/ff_*.log
 Se trovi `timeout`, `pthread_create` o errori di worker FastFlow, conserva il
 log e segnala la run come non valida.
 
-## 8 bis. Confrontare pipeline e flat
+## 8 bis. Confrontare multi-pass, pipeline e flat
 
-Per capire se la pipeline migliora davvero rispetto al flat, fai due run uguali
-e cambia solo la variabile di merge.
+Per capire se la pipeline o il flat migliorano rispetto allo standard, fai run
+uguali cambiando solo la variabile di merge.
+
+OpenMP multi-pass standard:
+
+```bash
+cd ~/spmProject
+RUN_OMP=1 RUN_FF=0 \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+THREAD_LIST="1 2 4 8 16 32" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
+TRIALS=1 VERIFY=0 \
+sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
+```
 
 OpenMP pipeline:
 
@@ -288,7 +301,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 OMP_PIPELINE=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -300,13 +313,13 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 OMP_FLAT_MERGE=1 \
 BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
 
-Per FastFlow usa `RUN_OMP=0 RUN_FF=1`, poi confronta `FF_PIPELINE=1` contro
-`FF_FLAT_MERGE=1`.
+Per FastFlow usa `RUN_OMP=0 RUN_FF=1`, poi confronta la run standard contro
+`FF_PIPELINE=1` e `FF_FLAT_MERGE=1`.
 
 Nel confronto guarda:
 
@@ -317,8 +330,9 @@ phase1_speedup, phase1_efficiency
 phase2_speedup, phase2_efficiency
 ```
 
-Pipeline dovrebbe aiutare soprattutto quando la Fase 2 pesa molto. Su input
-piccoli il flat puo' ancora vincere per overhead minore.
+Il multi-pass semplice e' il riferimento principale. La pipeline puo' aiutare
+quando la Fase 2 pesa molto, mentre su input piccoli il flat puo' ancora vincere
+per overhead minore.
 
 ## 9. Payload distribution
 
@@ -329,7 +343,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -354,7 +368,7 @@ BENCHMARK_CASES="manySmall50M:50000000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -384,7 +398,7 @@ WEAK_CASES="weakSmall6250k:6250000:64" \
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 ```
@@ -408,7 +422,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=16 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```

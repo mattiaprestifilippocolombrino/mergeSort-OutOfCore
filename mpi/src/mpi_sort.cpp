@@ -20,11 +20,15 @@
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run locale (default: 256 MB)
 //   --threads   N     Numero di thread OpenMP per rank (default: max hw)
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /tmp)
-//   --merge-fan N     Fan-in massimo del K-way merge locale legacy (default: 64)
+//   --merge-fan N     Fan-in massimo del K-way merge locale (default: 16)
+//   --multipass-local-merge
+//                     Usa il merge locale multi-pass semplice dentro ogni rank (default)
 //   --legacy-local-merge
-//                     Usa il merge locale multi-pass storico dentro ogni rank
+//                     Alias storico di --multipass-local-merge
+//   --flat-local-merge
+//                     Usa il merge locale flat a due stadi dentro ogni rank
 //   --pipeline-local-merge
-//                     Usa la pipeline I/O asincrona per il merge locale (default)
+//                     Usa la pipeline I/O asincrona per il merge locale
 //
 // =============================================================================
 // ARCHITETTURA DISTRIBUITA
@@ -121,11 +125,15 @@ static void usage(const char* prog) {
               << "  --chunk-mb  N     MB per chunk locale (default: 256)\n"
               << "  --threads   N     Thread OpenMP per rank (default: max hw)\n"
               << "  --tmp-dir   PATH  Directory temporanea (default: /tmp)\n"
-              << "  --merge-fan N     Fan-in per legacy e pipeline (default: 32 per pipeline, 64 legacy)\n"
+              << "  --merge-fan N     Fan-in per merge locale multi-pass (default: 16)\n"
+              << "  --multipass-local-merge\n"
+              << "                    Usa il merge locale multi-pass semplice dentro ogni rank (default)\n"
               << "  --legacy-local-merge\n"
-              << "                    Usa il merge locale multi-pass storico dentro ogni rank\n"
+              << "                    Alias storico di --multipass-local-merge\n"
+              << "  --flat-local-merge\n"
+              << "                    Usa il merge locale flat a due stadi dentro ogni rank\n"
               << "  --pipeline-local-merge\n"
-              << "                    Usa la pipeline I/O asincrona per il merge locale (default)\n";
+              << "                    Usa la pipeline I/O asincrona per il merge locale\n";
     std::exit(1);
 }
 
@@ -408,6 +416,8 @@ int main(
         return 1;
     }
 
+    try {
+
     // Estrae i parametri base passati dall'utente
     std::string inputPath  = argv[1]; // File di input da ordinare
     std::string outputPath = argv[2]; // File di output
@@ -416,9 +426,10 @@ int main(
     std::string tmpDir     = "/tmp";  // Directory base per i file temporanei
     size_t      chunkMb    = 256;     // Dimensione massima in MB per ogni chunk da ordinare localmente
     int         nThreads   = omp_get_max_threads(); // Numero di thread OpenMP da usare
-    int         mergeFan   = 64;      // Numero massimo K di passate per i merge interni legacy
-    bool        legacyLocalMerge    = false;
-    bool        pipelineLocalMerge  = true;  // Default: pipeline I/O asincrona
+    int         mergeFan   = 16;      // Fan-in del merge locale multi-pass
+    bool        multipassLocalMerge = true;  // Default: multi-pass semplice
+    bool        pipelineLocalMerge  = false;
+    bool        mergeFanExplicit    = false;
 
     // Ciclo di parsing dei flag opzionali e assegnamento
     for (int i = 3; i < argc; ++i) {
@@ -426,14 +437,21 @@ int main(
         if      (a == "--chunk-mb"  && i + 1 < argc) chunkMb  = std::stoul(argv[++i]);
         else if (a == "--threads"   && i + 1 < argc) nThreads = std::stoi(argv[++i]);
         else if (a == "--tmp-dir"   && i + 1 < argc) tmpDir   = argv[++i];
-        else if (a == "--merge-fan" && i + 1 < argc) mergeFan = std::stoi(argv[++i]);
-        else if (a == "--legacy-local-merge") {
-            legacyLocalMerge   = true;
+        else if (a == "--merge-fan" && i + 1 < argc) {
+            mergeFan = std::stoi(argv[++i]);
+            mergeFanExplicit = true;
+        }
+        else if (a == "--legacy-local-merge" || a == "--multipass-local-merge") {
+            multipassLocalMerge = true;
+            pipelineLocalMerge = false;
+        }
+        else if (a == "--flat-local-merge") {
+            multipassLocalMerge = false;
             pipelineLocalMerge = false;
         }
         else if (a == "--pipeline-local-merge") {
             pipelineLocalMerge = true;
-            legacyLocalMerge   = false;
+            multipassLocalMerge = false;
         }
         else {
             if (rank == 0) usage(argv[0]);
@@ -451,6 +469,10 @@ int main(
     omp_set_num_threads(nThreads);  // Imposta il numero di thread OpenMP da usare per questo processo
     const size_t chunkBytes = chunkMb * 1024ULL * 1024ULL; // Converte la dimensione del chunk da MB a byte
 
+    if (pipelineLocalMerge && !mergeFanExplicit) {
+        mergeFan = MULTIPASS_MERGE_FAN_DEFAULT;
+    }
+
     // Crea in RAII una sotto-directory temporanea esclusiva del rank per isolare l'I/O ed evitare collisioni.
     // L'oggetto TempDir rimuove la cartella e i suoi contenuti automaticamente alla distruzione
     TempDir workTmp(tmpDir, "spm_mpi_r" + std::to_string(rank));  // Crea una cartella temporanea per il rank
@@ -463,11 +485,11 @@ int main(
                   << "  threads  : " << nThreads << "\n"
                   << "  chunk    : " << chunkMb  << " MB\n"
                   << "  local merge : "
-                  << (legacyLocalMerge   ? "mpi-local-legacy"   :
+                  << (multipassLocalMerge ? "mpi-local-multipass" :
                       pipelineLocalMerge ? "mpi-local-pipeline"  :
                                            "mpi-local-flat")
                   << "\n"
-                  << "  fan-in   : " << (legacyLocalMerge || pipelineLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
+                  << "  fan-in   : " << (multipassLocalMerge || pipelineLocalMerge ? std::to_string(mergeFan) : "non usato") << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
 
@@ -514,22 +536,24 @@ int main(
         if (runPaths.empty()) {
             // Crea un file vuoto come placeholder e lo chiude. Verrà ignorato fluidamente nella Fase 2.
             FILE* f = std::fopen(localSorted.c_str(), "wb");
-            if (f) std::fclose(f);
+            if (!f) {
+                throw std::runtime_error("mpi_sort: impossibile creare local_sorted vuoto");
+            }
+            std::fclose(f);
 
         } else if (runPaths.size() == 1) {
             if (std::rename(runPaths[0].c_str(), localSorted.c_str()) != 0)
                 throw std::runtime_error("mpi_sort: rename local_sorted fallito");
 
         } else {
-            if (legacyLocalMerge) {
-                // Multi-pass storico: conservato per confronto.
+            if (multipassLocalMerge) {
+                // Multi-pass semplice: default finale per il merge locale.
                 kwayMerge(runPaths, localSorted, mergeFan,
                           /*deleteRuns=*/true, /*parallelMerge=*/false);
             } else if (pipelineLocalMerge) {
-                // Pipeline I/O asincrona (default): Reader a blocchi + Writer thread.
+                // Pipeline I/O asincrona: Reader a blocchi + Writer thread.
                 // Ogni rank lavora sul proprio disco locale: zero contesa tra rank.
                 // Multipass safe previene crash se il rank locale produce troppe run.
-                if (mergeFan == 64) mergeFan = MULTIPASS_MERGE_FAN_DEFAULT; // Best practice
                 ompKwayMergeMultipassPipeline(runPaths, localSorted, mergeFan, /*deleteRuns=*/true);
             } else {
                 // Flat OMP: due stadi. Conservato come alternativa.
@@ -674,4 +698,9 @@ int main(
     // Disabilita MPI, deallocando o sincronizzando gli ultimi processi
     MPI_Finalize();
     return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "[rank " << rank << "] errore: " << e.what() << "\n";
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return 1;
+    }
 }
