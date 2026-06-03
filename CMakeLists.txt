@@ -20,7 +20,7 @@ endif()
 
 # ─── Include directories ──────────────────────────────────────────────────────
 include_directories(common/include fastflow/include)
-set(SPM_TEST_SCRATCH "/scratch/$ENV{USER}/spm_tests" CACHE PATH "Directory scratch per i test manuali")
+set(SPM_TEST_SCRATCH "/scratch/m.prestifilippoco/spm_tests" CACHE PATH "Directory scratch per i test manuali")
 
 # ─── OpenMP ───────────────────────────────────────────────────────────────────
 find_package(OpenMP REQUIRED)

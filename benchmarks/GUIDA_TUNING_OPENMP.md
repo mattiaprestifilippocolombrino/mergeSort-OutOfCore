@@ -13,6 +13,8 @@ ripetibile e separato dalla campagna finale.
 - Lascia `VERIFY=0` durante il tuning; fai la verifica in un job piccolo
   separato.
 - Non usare `SKIP_BUILD=1` quando cambi `PAYLOAD_MAX_BUILD`.
+- Prima degli `sbatch`, crea le directory scratch con
+  `./benchmarks/setup_scratch.sh`.
 
 ## Dataset tuning
 
@@ -33,6 +35,7 @@ senza mischiare troppe dimensioni in un solo job.
 
 ```bash
 cd ~/spmProject
+./benchmarks/setup_scratch.sh
 BENCHMARK_CASES="tuneSmall10M:10000000:64" \
 THREAD_LIST="1 32" \
 CHUNK_MB_LIST="64 128" \
@@ -45,6 +48,7 @@ sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
 
 ```bash
 cd ~/spmProject
+./benchmarks/setup_scratch.sh
 BENCHMARK_CASES="tuneSmall10M:10000000:64" \
 THREAD_LIST="1 32" \
 CHUNK_MB_LIST="256 512" \
@@ -57,6 +61,7 @@ sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
 
 ```bash
 cd ~/spmProject
+./benchmarks/setup_scratch.sh
 BENCHMARK_CASES="tuneSmall10M:10000000:64" \
 THREAD_LIST="1 32" \
 CHUNK_MB_LIST="64 128 256 512" \
@@ -70,7 +75,7 @@ sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
 Ogni job produce una directory:
 
 ```text
-benchmark_results/run_<jobid>/
+/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/
 ```
 
 I file principali sono:
@@ -85,8 +90,8 @@ logs/
 Per confrontare piu' job:
 
 ```bash
-ls -td benchmark_results/run_*
-cat benchmark_results/run_*/single_node_tuning_summary.csv
+ls -td /scratch/m.prestifilippoco/spmRun/results/run_*
+cat /scratch/m.prestifilippoco/spmRun/results/run_*/single_node_tuning_summary.csv
 ```
 
 Scegli la coppia `CHUNK_MB`, `MERGE_FAN` con `avg_total_s` piu' basso nel caso

@@ -5,10 +5,10 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
-RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_DIR/benchmark_results}"
 BENCHMARK_RUN_ID="${BENCHMARK_RUN_ID:-${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)_$$}}"
-BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build_bench}"
-SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/m.prestifilippoco}"
+BUILD_DIR="${BUILD_DIR:-$SCRATCH_BASE/spmRun/build_$BENCHMARK_RUN_ID}"
+RESULTS_ROOT="${RESULTS_ROOT:-$SCRATCH_BASE/spmRun/results}"
 TMP_BASE="${TMP_BASE:-$SCRATCH_BASE/spm_benchmark_$BENCHMARK_RUN_ID/work}"
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT/run_$BENCHMARK_RUN_ID}"
 LOG_DIR="${LOG_DIR:-$RESULTS_DIR/logs}"
@@ -44,13 +44,21 @@ prepare_storage_dirs() {
 
     if [[ ! -d "$TMP_BASE" || ! -w "$TMP_BASE" ]]; then
         log "TMP_BASE non scrivibile: $TMP_BASE"
-        log "Su cluster imposta SCRATCH_BASE=/scratch/$USER oppure TMP_BASE su scratch locale del nodo."
+        log "Su cluster imposta SCRATCH_BASE=/scratch/m.prestifilippoco oppure TMP_BASE su scratch locale del nodo."
         return 2
     fi
 
     if [[ "$TMP_BASE" != /scratch/* ]]; then
         log "[WARN] TMP_BASE non e' sotto /scratch: $TMP_BASE"
         log "[WARN] Per misure finali HPC usa scratch locale del nodo, non filesystem condiviso."
+    fi
+    if [[ "$RESULTS_ROOT" != /scratch/* ]]; then
+        log "[WARN] RESULTS_ROOT non e' sotto /scratch: $RESULTS_ROOT"
+        log "[WARN] Evita log e CSV frequenti su home NFS durante benchmark HPC."
+    fi
+    if [[ "$DATA_DIR" != /scratch/* ]]; then
+        log "[WARN] DATA_DIR non e' sotto /scratch: $DATA_DIR"
+        log "[WARN] Evita dataset grandi su home NFS durante benchmark HPC."
     fi
 }
 
@@ -184,7 +192,13 @@ run_single() {
     shift
 
     if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-        srun -N 1 -n 1 -c "$cpus" "$@"
+        local node_list
+        node_list="$(slurm_node_list_for 1)"
+        local node_args=()
+        if [[ -n "$node_list" ]]; then
+            node_args=(--nodelist "$node_list")
+        fi
+        srun "${node_args[@]}" -N 1 -n 1 -c "$cpus" "$@"
     else
         "$@"
     fi
@@ -260,16 +274,22 @@ stage_mpi_input() {
     fi
 
     srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
-        bash -c '
-            set -Eeuo pipefail
-            stage_dir="$1"
-            dst="$2"
-            src="$3"
-            mkdir -p "$stage_dir"
-            if [[ ! -s "$dst" || "$src" -nt "$dst" ]]; then
-                cp -f "$src" "$dst"
-            fi
-        ' _ "$stage_dir" "$dst" "$src"
+        mkdir -p "$stage_dir"
+
+    if command -v sbcast >/dev/null 2>&1; then
+        sbcast -f "$src" "$dst"
+    else
+        log "[WARN] sbcast non trovato: uso cp via srun, funziona solo se src e' visibile dai nodi."
+        srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
+            bash -c '
+                set -Eeuo pipefail
+                dst="$1"
+                src="$2"
+                if [[ ! -s "$dst" || "$src" -nt "$dst" ]]; then
+                    cp -f "$src" "$dst"
+                fi
+            ' _ "$dst" "$src"
+    fi
 
     printf '%s\n' "$dst"
 }

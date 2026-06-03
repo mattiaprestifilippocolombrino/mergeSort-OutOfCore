@@ -16,8 +16,8 @@ slurm_tune_single_node.sbatch
 che produce:
 
 ```text
-benchmark_results/run_<jobid>/single_node_tuning_raw.csv
-benchmark_results/run_<jobid>/single_node_tuning_summary.csv
+/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/single_node_tuning_raw.csv
+/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/single_node_tuning_summary.csv
 ```
 
 Configurazione:
@@ -160,6 +160,8 @@ Quindi:
 - `analyze.py`: genera summary CSV e grafici.
 
 La procedura di tuning e' descritta in `GUIDA_TUNING_OPENMP.md`.
+Prima di sottomettere job Slurm esegui `./benchmarks/setup_scratch.sh`, perche'
+gli output `#SBATCH` puntano a `/scratch/m.prestifilippoco/spmRun/slurm`.
 
 ## Default attuali
 
@@ -183,18 +185,19 @@ build esistente e' stata compilata con un `PAYLOAD_MAX` piu' piccolo di
 I file temporanei dei sorter vengono passati con `--tmp-dir` e finiscono sotto
 `TMP_BASE`, sempre sotto `/scratch` negli script Slurm. Gli script single-node
 mettono anche i dataset temporanei sotto `/scratch`; lo script MPI tiene il
-dataset persistente in `benchmark_data` e lo copia poi in `TMP_BASE/mpi_input`
-sui nodi usati. I risultati CSV, summary, grafici e log restano in
-`benchmark_results`, quindi la pulizia dello scratch a fine job non perde dati.
+dataset sorgente sotto `/scratch` e lo distribuisce poi ai nodi usati in
+`TMP_BASE/mpi_input` con `sbcast` quando disponibile. I risultati CSV, summary,
+grafici e log restano in `/scratch/m.prestifilippoco/spmRun/results`, quindi la
+pulizia della workdir a fine job non perde dati.
 La variabile `CLEAN_SCRATCH=1` e' attiva di default; usa `CLEAN_SCRATCH=0` solo
 per debug.
 
 ## Output
 
-Ogni esecuzione crea una cartella dedicata sotto `benchmark_results`:
+Ogni esecuzione crea una cartella dedicata sotto `/scratch`:
 
 ```text
-benchmark_results/
+/scratch/m.prestifilippoco/spmRun/results/
   run_<jobid-o-timestamp>/
     single_node_raw.csv
     single_node_summary.csv

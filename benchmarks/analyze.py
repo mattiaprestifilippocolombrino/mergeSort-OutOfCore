@@ -8,6 +8,7 @@ summaries. If matplotlib is installed, it also writes a small set of PNG plots.
 from __future__ import annotations
 
 import argparse
+import os
 import csv
 import math
 import statistics
@@ -356,11 +357,24 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aggregate SPM benchmark CSVs.")
-    parser.add_argument("--results-dir", default="benchmark_results")
+    parser.add_argument(
+        "--results-dir",
+        default=os.environ.get("RESULTS_DIR"),
+        help="Directory containing raw CSVs. Defaults to RESULTS_DIR or the newest /scratch run.",
+    )
     parser.add_argument("--keep-worst", action="store_true", help="Do not drop the slowest trial when at least 3 trials exist.")
     args = parser.parse_args()
 
-    results_dir = Path(args.results_dir)
+    if args.results_dir:
+        results_dir = Path(args.results_dir)
+    else:
+        results_root = Path("/scratch/m.prestifilippoco/spmRun/results")
+        runs = sorted(
+            results_root.glob("run_*"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        results_dir = runs[0] if runs else results_root
     drop_worst = not args.keep_worst
 
     single = summarize(

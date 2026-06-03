@@ -1,7 +1,7 @@
 # Guida rapida misurazioni cluster
 
 Questa guida contiene la sequenza consigliata per produrre i risultati finali.
-Ogni job crea una cartella dedicata in `benchmark_results/run_<jobid>/`, con
+Ogni job crea una cartella dedicata in `/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/`, con
 CSV, summary, grafici e log separati.
 I file di lavoro e i dataset temporanei stanno sotto `/scratch` e vengono
 rimossi a fine job; imposta `CLEAN_SCRATCH=0` solo per debug.
@@ -51,6 +51,7 @@ git pull
 chmod +x benchmarks/*.sh benchmarks/*.sbatch
 bash -n benchmarks/*.sh benchmarks/*.sbatch
 python3 -m py_compile benchmarks/analyze.py
+./benchmarks/setup_scratch.sh
 ```
 
 ## Layout risultati
@@ -58,7 +59,7 @@ python3 -m py_compile benchmarks/analyze.py
 Ogni job scrive in una cartella propria:
 
 ```text
-benchmark_results/
+/scratch/m.prestifilippoco/spmRun/results/
   run_<jobid>/
     single_node_raw.csv
     single_node_summary.csv
@@ -75,13 +76,13 @@ benchmark_results/
 Per trovare l'ultima run:
 
 ```bash
-ls -td benchmark_results/run_* | head -n 1
+ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1
 ```
 
 Esempio:
 
 ```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -165,9 +166,9 @@ Controllo:
 
 ```bash
 squeue -u "$USER"
-tail -f slurm_single_*.out
-tail -n 120 slurm_single_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.out
+tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -191,7 +192,7 @@ sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 Controllo:
 
 ```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/ff_*.log
 ```
@@ -213,7 +214,7 @@ sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 Controllo:
 
 ```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -253,9 +254,9 @@ Controllo:
 
 ```bash
 squeue -u "$USER"
-tail -f slurm_mpi_*.out
-tail -n 160 slurm_mpi_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.out
+tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_strong_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -297,8 +298,8 @@ sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 Controllo:
 
 ```bash
-tail -n 160 slurm_mpi_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_weak_summary.csv"
 ```
 
@@ -325,7 +326,7 @@ Restano archiviate nelle cartelle `legacy` per consultazione storica.
 ## Rigenerare summary e grafici
 
 ```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 

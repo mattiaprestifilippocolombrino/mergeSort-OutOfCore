@@ -58,12 +58,19 @@ Nei job FastFlow imposta:
 FF_ROOT="$HOME/fastFlow"
 ```
 
+Prima di sottomettere job Slurm crea la tua area scratch:
+
+```bash
+cd ~/spmProject
+./benchmarks/setup_scratch.sh
+```
+
 ## 3. Dove finiscono i risultati
 
 Ogni job crea una cartella nuova:
 
 ```text
-benchmark_results/run_<jobid>/
+/scratch/m.prestifilippoco/spmRun/results/run_<jobid>/
 ```
 
 Dentro trovi:
@@ -82,7 +89,7 @@ plots/
 Per puntare sempre all'ultima run:
 
 ```bash
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 echo "$RUN_DIR"
 ```
 
@@ -209,9 +216,9 @@ Controlla:
 
 ```bash
 squeue -u "$USER"
-tail -f slurm_single_*.out
-tail -n 120 slurm_single_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.out
+tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 ls -lh "$RUN_DIR/logs"
 ```
@@ -233,8 +240,8 @@ sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 Controlla:
 
 ```bash
-tail -n 120 slurm_single_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/omp_*.log
 ```
@@ -262,8 +269,8 @@ sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 Controlla:
 
 ```bash
-tail -n 120 slurm_single_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -n 120 /scratch/m.prestifilippoco/spmRun/slurm/slurm_single_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/single_node_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/ff_*.log
 ```
@@ -313,9 +320,9 @@ Controlla:
 
 ```bash
 squeue -u "$USER"
-tail -f slurm_mpi_*.out
-tail -n 160 slurm_mpi_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -f /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.out
+tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_strong_summary.csv"
 tail -n 80 "$RUN_DIR"/logs/mpi_strong_*.log
 ```
@@ -358,8 +365,8 @@ sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
 Controlla:
 
 ```bash
-tail -n 160 slurm_mpi_*.err
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+tail -n 160 /scratch/m.prestifilippoco/spmRun/slurm/slurm_mpi_*.err
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 cat "$RUN_DIR/mpi_weak_summary.csv"
 ```
 
@@ -383,7 +390,7 @@ sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 
 ```bash
 cd ~/spmProject
-RUN_DIR="$(ls -td benchmark_results/run_* | head -n 1)"
+RUN_DIR="$(ls -td /scratch/m.prestifilippoco/spmRun/results/run_* | head -n 1)"
 python3 benchmarks/analyze.py --results-dir "$RUN_DIR"
 ```
 
@@ -395,14 +402,18 @@ $RUN_DIR/plots/
 
 ## 14. Eseguire il Tuning (Opzionale ma raccomandato)
 
-Puoi lanciare il job di tuning per esplorare varie configurazioni di chunk e fan-in in modo automatico. È essenziale farlo prima di lanciare i job per i benchmark finali, così da massimizzare le performance per l'I/O del cluster.
+Segui la guida dedicata:
+
+```text
+benchmarks/GUIDA_TUNING_OPENMP.md
+```
+
+Il tuning usa solo OpenMP e divide la grid search in piu' job brevi.
 
 ```bash
 cd ~/spmProject
-sbatch benchmarks/slurm_tune_single_node.sbatch
+./benchmarks/setup_scratch.sh
 ```
-
-Il job proverà in automatico tutte le combinazioni (es. chunk 64, 128, 256 MB con fan-in 16, 32, 64) e genererà un CSV chiamato `single_node_tuning_raw.csv` con la classifica delle combinazioni ottimali, che poi verrà plottata dallo script di analisi.
 
 ## 15. Scaricare i risultati su Windows
 
@@ -410,7 +421,7 @@ Sul cluster:
 
 ```bash
 cd ~/spmProject
-tar -czf spm_benchmark_results.tar.gz benchmark_results slurm_single_*.out slurm_single_*.err slurm_mpi_*.out slurm_mpi_*.err slurm_tune_single_*.out slurm_tune_single_*.err
+tar -czf /scratch/m.prestifilippoco/spmRun/spm_benchmark_results.tar.gz -C /scratch/m.prestifilippoco/spmRun results slurm
 ```
 
 Poi esci:
@@ -423,7 +434,7 @@ Da PowerShell:
 
 ```powershell
 mkdir "$env:USERPROFILE\Desktop\spm_benchmark_results"
-scp LOGIN@spmcluster.unipi.it:~/spmProject/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
+scp LOGIN@spmcluster.unipi.it:/scratch/m.prestifilippoco/spmRun/spm_benchmark_results.tar.gz "$env:USERPROFILE\Desktop\spm_benchmark_results\"
 ```
 
 ## 16. Cosa scrivere nella relazione

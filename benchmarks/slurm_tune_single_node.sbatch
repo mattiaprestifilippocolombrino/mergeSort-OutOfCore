@@ -5,18 +5,18 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:10:00
-#SBATCH --output=slurm_tune_single_%j.out
-#SBATCH --error=slurm_tune_single_%j.err
+#SBATCH --output=/scratch/m.prestifilippoco/spmRun/slurm/slurm_tune_single_%j.out
+#SBATCH --error=/scratch/m.prestifilippoco/spmRun/slurm/slurm_tune_single_%j.err
 
 set -Eeuo pipefail
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 export PROJECT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-SCRATCH_BASE="${SCRATCH_BASE:-/scratch/${USER:-spm}}"
+SCRATCH_BASE="${SCRATCH_BASE:-/scratch/m.prestifilippoco}"
 RUN_ROOT="$SCRATCH_BASE/spmRun/tune"
 export RUN_DIR="$RUN_ROOT/${SLURM_JOB_ID:-localRun}"
-export RESULTS_ROOT="$PROJECT_DIR/benchmark_results"
+export RESULTS_ROOT="$SCRATCH_BASE/spmRun/results"
 export BENCHMARK_RUN_ID="${SLURM_JOB_ID:-localRun}"
 export RESULTS_DIR="$RESULTS_ROOT/run_$BENCHMARK_RUN_ID"
 export LOG_DIR="$RESULTS_DIR/logs"
@@ -34,6 +34,7 @@ trap cleanup_scratch EXIT
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
 echo "SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-}"
 echo "PROJECT_DIR=$PROJECT_DIR"
+echo "SCRATCH_BASE=$SCRATCH_BASE"
 echo "RUN_DIR=$RUN_DIR"
 echo "RESULTS_ROOT=$RESULTS_ROOT"
 echo "RESULTS_DIR=$RESULTS_DIR"

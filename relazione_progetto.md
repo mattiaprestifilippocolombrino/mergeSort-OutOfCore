@@ -368,7 +368,7 @@ Per la singola macchina si varia il numero di thread OpenMP o worker FastFlow:
 
 ```bash
 THREAD_LIST="1 2 4 8 16 32" TRIALS=5 ./benchmarks/single_node.sh
-python3 benchmarks/analyze.py --results-dir benchmark_results
+python3 benchmarks/analyze.py
 ```
 
 Per ogni implementazione e per ogni dataset si calcolano:
@@ -381,10 +381,10 @@ efficiency(p) = speedup(p) / p
 dove `p` e' il numero di thread o worker. I risultati aggregati sono salvati in:
 
 ```text
-benchmark_results/single_node_summary.csv
+/scratch/m.prestifilippoco/spmRun/results/run_*/single_node_summary.csv
 ```
 
-Se `matplotlib` e' disponibile, vengono prodotti anche i grafici in `benchmark_results/plots/`.
+Se `matplotlib` e' disponibile, vengono prodotti anche i grafici in `/scratch/m.prestifilippoco/spmRun/results/run_*/plots/`.
 
 ### 10.3 Strong scaling MPI
 
@@ -408,7 +408,7 @@ strong_efficiency = strong_speedup / (cores(p) / cores_base)
 La baseline e' la configurazione con il numero minimo di core totali disponibile per lo stesso dataset. Il CSV aggregato e':
 
 ```text
-benchmark_results/mpi_strong_summary.csv
+/scratch/m.prestifilippoco/spmRun/results/run_*/mpi_strong_summary.csv
 ```
 
 ### 10.4 Weak scaling MPI
