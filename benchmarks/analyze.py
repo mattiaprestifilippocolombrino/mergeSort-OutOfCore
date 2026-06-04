@@ -23,6 +23,17 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def read_raw_csv(results_dir: Path, filename: str) -> list[dict[str, str]]:
+    direct = results_dir / filename
+    if direct.exists():
+        return read_csv(direct)
+
+    rows: list[dict[str, str]] = []
+    for path in sorted(results_dir.glob(f"run_*/{filename}")):
+        rows.extend(read_csv(path))
+    return rows
+
+
 def as_float(row: dict[str, str], key: str) -> float:
     try:
         return float(row[key])
@@ -378,7 +389,7 @@ def main() -> None:
     drop_worst = not args.keep_worst
 
     single = summarize(
-        read_csv(results_dir / "single_node_raw.csv"),
+        read_raw_csv(results_dir, "single_node_raw.csv"),
         ["impl", "merge_impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
         drop_worst,
     )
@@ -386,7 +397,7 @@ def main() -> None:
     write_csv(results_dir / "single_node_summary.csv", single)
 
     tuning = summarize(
-        read_csv(results_dir / "single_node_tuning_raw.csv"),
+        read_raw_csv(results_dir, "single_node_tuning_raw.csv"),
         ["impl", "merge_impl", "case", "records", "payload_max", "threads", "chunk_mb", "merge_fan", "generated_runs"],
         drop_worst,
     )
@@ -394,7 +405,7 @@ def main() -> None:
     write_csv(results_dir / "single_node_tuning_summary.csv", tuning)
 
     strong = summarize(
-        read_csv(results_dir / "mpi_strong_raw.csv"),
+        read_raw_csv(results_dir, "mpi_strong_raw.csv"),
         [
             "case",
             "records",
@@ -415,7 +426,7 @@ def main() -> None:
     write_csv(results_dir / "mpi_strong_summary.csv", strong)
 
     weak = summarize(
-        read_csv(results_dir / "mpi_weak_raw.csv"),
+        read_raw_csv(results_dir, "mpi_weak_raw.csv"),
         [
             "case",
             "records",

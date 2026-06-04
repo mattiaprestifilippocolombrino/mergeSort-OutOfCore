@@ -477,6 +477,12 @@ int main(
     // Il rank 0 legge l'input in modo seriale per calcolare correttamente i limiti dei vari record.
     if (rank == 0) {
         boundaries = computeRecordBoundaries(inputPath, totalBytes, numProcs);
+        std::cout << "Input bytes : " << totalBytes << "\n";
+        std::cout << "Stripe bytes:";
+        for (int r = 0; r < numProcs; ++r) {
+            std::cout << " r" << r << "=" << (boundaries[r + 1] - boundaries[r]);
+        }
+        std::cout << "\n";
     }
     
     // Il rank 0 diffonde a tutti i rank i boundaries, così tutti sapranno la loro precisa porzione di file.
@@ -489,11 +495,13 @@ int main(
     // File in cui il processo salva il risultato finale del sort locale
     const std::string localSorted = myTmp + "/local_sorted.bin";
 
+    int localRunCount = 0;
     {
         // Viene chiamata la funzione che partiziona internamente la stripe, ordina le run e le scrive su disco, usando openmp.
         // Viene ritornato un vettore di stringhe contenente i path dei file (run) dei chunk ordinati.
         std::vector<std::string> runPaths =
             sortRangeToRuns(inputPath, myTmp, chunkBytes, myStart, myEnd);
+        localRunCount = static_cast<int>(runPaths.size());
 
         // Se la porzione risulta vuota
         if (runPaths.empty()) {
@@ -517,9 +525,12 @@ int main(
 
     // Barriera in cui tutti i rank attendono che tutti abbiano la stripe locale pronta prima di iniziare lo scambio di dati tra rank.
     MPI_Barrier(MPI_COMM_WORLD);
+    int totalRunCount = 0;
+    MPI_Reduce(&localRunCount, &totalRunCount, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     double t1b = wall(); // Ferma il cronometro della Fase 1
     if (rank == 0)
-        std::cout << "Fase 1 (sort locale): " << (t1b - t1a) << " s\n";  //Il rank 0 stampa il tempo impiegato per la fase 1
+        std::cout << "Fase 1 (sort locale): " << totalRunCount
+                  << " run create in " << (t1b - t1a) << " s\n";  //Il rank 0 stampa il tempo impiegato per la fase 1
 
 
     /* =========================================================================

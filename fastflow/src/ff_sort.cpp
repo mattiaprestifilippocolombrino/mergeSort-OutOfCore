@@ -55,6 +55,9 @@
 #include <string>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <algorithm>
+#include <omp.h>
 
 static double seconds(std::chrono::steady_clock::time_point a,
                       std::chrono::steady_clock::time_point b) {
@@ -140,8 +143,22 @@ int main(int argc, char* argv[]) {
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
 
     // ff_sort_to_runs implementa la fase 1 con una farm FastFlow.
-    std::vector<std::string> runs =
-        ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);   // Chiama la funzione ff_sort_to_runs per ordinare i chunk del file di input e salvare le run in file temporanei.
+    std::vector<std::string> runs;
+    try {
+        runs = ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);   // Chiama la funzione ff_sort_to_runs per ordinare i chunk del file di input e salvare le run in file temporanei.
+    } catch (const std::exception& ex) {
+        std::cerr << "[WARN] farm FastFlow non avviata correttamente: " << ex.what() << "\n"
+                  << "[WARN] fallback Fase 1: sort OpenMP con " << nWorkers
+                  << " thread, merge finale FastFlow/multipass.\n";
+
+        const std::string fallbackTmp = workTmp.str() + "/fallback_runs";
+        std::filesystem::create_directories(fallbackTmp);
+
+        const int previousThreads = omp_get_max_threads();
+        omp_set_num_threads(std::max(1, nWorkers));
+        runs = sortToRuns(inputPath, fallbackTmp, chunkBytes);
+        omp_set_num_threads(previousThreads);
+    }
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();   // Fine a contare il tempo.
 

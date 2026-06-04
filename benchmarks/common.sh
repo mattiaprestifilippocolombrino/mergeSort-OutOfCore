@@ -269,12 +269,19 @@ stage_mpi_input() {
         node_args=(--nodelist "$node_list")
     fi
 
-    srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
-        mkdir -p "$stage_dir"
-
     if command -v sbcast >/dev/null 2>&1; then
+        local setup_nodes="$nodes"
+        local setup_node_args=("${node_args[@]}")
+        if [[ -n "${SLURM_JOB_NUM_NODES:-}" && "${SLURM_JOB_NUM_NODES:-0}" -gt "$nodes" ]]; then
+            setup_nodes="$SLURM_JOB_NUM_NODES"
+            setup_node_args=()
+        fi
+        srun "${setup_node_args[@]}" -N "$setup_nodes" -n "$setup_nodes" --ntasks-per-node 1 --cpu-bind=none \
+            mkdir -p "$stage_dir"
         sbcast -f "$src" "$dst"
     else
+        srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
+            mkdir -p "$stage_dir"
         log "[WARN] sbcast non trovato: uso cp via srun, funziona solo se src e' visibile dai nodi."
         srun "${node_args[@]}" -N "$nodes" -n "$nodes" --ntasks-per-node 1 --cpu-bind=none \
             bash -c '
@@ -315,11 +322,18 @@ ensure_dataset() {
     local payload="$3"
     local path
     path="$(dataset_path "$name" "$records" "$payload")"
+    local marker="$path.ok"
+    local expected_marker="records=$records payload_max=$payload seed=$SEED payload_build=$PAYLOAD_MAX_BUILD"
 
-    if [[ -s "$path" ]]; then
+    if [[ -s "$path" && -r "$marker" && "$(cat "$marker")" == "$expected_marker" ]]; then
         log "Dataset gia' presente: $path"
         printf '%s\n' "$path"
         return 0
+    fi
+
+    if [[ -e "$path" || -e "$marker" ]]; then
+        log "Dataset esistente incompleto o con marker non valido, rigenero: $path"
+        rm -f "$path" "$marker"
     fi
 
     if (( payload > PAYLOAD_MAX_BUILD )); then
@@ -328,9 +342,13 @@ ensure_dataset() {
     fi
 
     log "Genero dataset $name: N=$records payload_max=$payload"
-    run_single "$(available_cpus)" "$BUILD_DIR/generate" "$path" "$records" \
+    local tmp_path="$path.tmp.${SLURM_JOB_ID:-$$}"
+    rm -f "$tmp_path"
+    run_single "$(available_cpus)" "$BUILD_DIR/generate" "$tmp_path" "$records" \
         --payload-max "$payload" \
         --seed "$SEED" >/dev/null
+    mv -f "$tmp_path" "$path"
+    printf '%s\n' "$expected_marker" >"$marker"
     printf '%s\n' "$path"
 }
 
@@ -403,6 +421,19 @@ write_csv_header() {
 verify_output() {
     local input="$1"
     local output="$2"
+    if [[ ! -s "$output" ]]; then
+        log "Output mancante o vuoto: $output"
+        return 1
+    fi
+
+    local input_size output_size
+    input_size="$(stat -c '%s' "$input")"
+    output_size="$(stat -c '%s' "$output")"
+    if [[ "$input_size" != "$output_size" ]]; then
+        log "Dimensione output errata: input=$input_size byte output=$output_size byte file=$output"
+        return 1
+    fi
+
     if [[ "$VERIFY" == "1" ]]; then
         "$BUILD_DIR/verify" "$input" "$output" >/dev/null
     fi
