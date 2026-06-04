@@ -17,7 +17,6 @@ fi
 write_csv_header "$CSV" \
     "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,records_per_node,chunk_mb,merge_fan,time_budget_s,probe_chunks_per_rank,local_merge_impl,generated_runs,input_bytes,total_gib,gib_per_node,capacity_total_gib,capacity_gib_per_node,throughput_gib_s,throughput_gib_node_s,sort_s,merge_s,total_s,verified,log_file"
 
-mpi_local_merge_impl="mpi_local_multipass"
 mpi_local_merge_args=(--multipass-local-merge)
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
@@ -84,6 +83,11 @@ for nodes in $STRONG_NODES; do
 
     for threads in $MPI_THREAD_LIST; do
         total_cores=$((ranks * threads))
+        if (( threads > 1 )); then
+            mpi_local_merge_impl="mpi_local_omp_multipass"
+        else
+            mpi_local_merge_impl="mpi_local_multipass"
+        fi
 
         for trial in $(seq 1 "$TRIALS"); do
             output="$TMP_BASE/out_weak_${case_name_weak}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"

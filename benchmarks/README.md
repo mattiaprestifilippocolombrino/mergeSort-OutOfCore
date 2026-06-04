@@ -5,7 +5,7 @@ Questa cartella contiene gli script per misurare speedup, efficiency, strong sca
 La struttura e' ispirata a `benchmarks_others`: domini separati, CSV riassuntivi, payload diversi, thread sweep e scaling MPI. La differenza e' che qui i job sono piu' piccoli e usano parametri fissati dopo un tuning breve, per evitare esecuzioni troppo lunghe sullo spmcluster.
 
 ### Merge Multi-Pass Semplice (Versione Standard)
-La versione standard usa il merge **multi-pass semplice** per OpenMP, FastFlow e MPI. I benchmark single-node passano `--multipass-merge` in modo esplicito, mentre i benchmark MPI usano il merge locale multi-pass. Le vecchie varianti `flat` e pipeline asincrona sono state spostate nelle cartelle `legacy` e non fanno parte dei workflow attivi.
+La versione standard usa il merge **multi-pass semplice** per OpenMP, FastFlow e MPI. I benchmark single-node passano `--multipass-merge` in modo esplicito, mentre MPI usa il merge locale multi-pass: seriale con `threads_per_rank=1`, parallelo OpenMP con piu' thread. Le vecchie varianti `flat` e pipeline asincrona sono state spostate nelle cartelle `legacy` e non fanno parte dei workflow attivi.
 
 Il multi-pass semplice usa gruppi di massimo `MERGE_FAN` run, produce eventuali intermedi e ripete finche' resta un solo file ordinato. Questa scelta e' piu' prevedibile su cluster HPC: niente writer thread extra, meno rischio di oversubscription e parametri piu' facili da spiegare. Il tuning OpenMP prova combinazioni di `CHUNK_MB` e `MERGE_FAN` su job brevi:
 
@@ -78,7 +78,7 @@ di total, sort e merge sono mostrate insieme.
 
 ### Payload distribution
 
-La campagna principale `manySmall50M:50000000:64` copre il caso "grande N, payload piccolo" su cluster a 8 nodi. Per completare la richiesta, si aggiungono due casi con meno record e payload piu' grande:
+La campagna principale `manySmall50M:50000000:64` copre il caso "grande N, payload piccolo" su single-node. Per completare la richiesta, si aggiungono due casi con meno record e payload piu' grande:
 
 ```bash
 mediumPayload8M:8000000:512
@@ -98,7 +98,7 @@ Questa parte mostra il passaggio da molti record piccoli a meno record con paylo
 Dataset fisso:
 
 ```bash
-manySmall50M:50000000:64
+manySmall200M:200000000:64
 ```
 
 Nodi:
@@ -129,7 +129,9 @@ avg_merge_s = Fase 2 distribuita: merge ad albero tra rank MPI
 ```
 
 Quindi `avg_sort_s` in MPI non e' solo il tempo di `std::sort`, ma l'intera
-fase locale prima del merge distribuito.
+fase locale prima del merge distribuito. Il merge locale e' seriale solo con
+`threads_per_rank=1`; con piu' thread usa il merge OpenMP multi-pass parallelo
+e viene marcato come `mpi_local_omp_multipass`.
 
 ### MPI weak capacity
 

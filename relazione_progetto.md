@@ -394,7 +394,7 @@ Per lo strong scaling il dataset resta fisso e si aumentano nodi, processi MPI e
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
 MPI_THREAD_LIST="1 4 8 16 32" \
-BENCHMARK_CASES="manySmall50M:50000000:64" \
+BENCHMARK_CASES="manySmall200M:200000000:64" \
 PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 \
 ./benchmarks/mpi_strong.sh
@@ -407,7 +407,10 @@ strong_speedup    = T_base / T(p)
 strong_efficiency = strong_speedup / (cores(p) / cores_base)
 ```
 
-La baseline e' la configurazione con il numero minimo di core totali disponibile per lo stesso dataset. Il CSV aggregato e':
+Con piu' di un thread per rank, il merge locale MPI usa il merge OpenMP
+multi-pass parallelo; con un solo thread resta il merge locale seriale. La
+baseline e' la configurazione con il numero minimo di core totali disponibile
+per lo stesso dataset. Il CSV aggregato e':
 
 ```text
 benchmark_results/run_*/mpi_strong_summary.csv

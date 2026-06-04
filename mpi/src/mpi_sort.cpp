@@ -78,9 +78,11 @@
 // Moduli del progetto:
 //   chunk_sorter.hpp  -> spezza una stripe in chunk, li ordina e produce run.
 //   kway_merger.hpp   -> fonde run gia' ordinate in modo out-of-core.
+//   omp_kway_merger.hpp -> parallelizza il merge locale tra gruppi di run.
 //   temp_dir.hpp      -> crea e pulisce directory temporanee RAII per rank.
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
+#include "omp_kway_merger.hpp"
 #include "temp_dir.hpp"
 
 // Librerie di parallelismo e sistema:
@@ -451,7 +453,9 @@ int main(
                   << "  ranks    : " << numProcs << "\n"
                   << "  threads  : " << nThreads << "\n"
                   << "  chunk    : " << chunkMb  << " MB\n"
-                  << "  local merge : mpi-local-multipass\n"
+                  << "  local merge : "
+                  << (nThreads > 1 ? "mpi-local-omp-multipass" : "mpi-local-multipass")
+                  << "\n"
                   << "  fan-in   : " << mergeFan << "\n"
                   << "  tmp base : " << tmpDir   << "\n\n";
     }
@@ -517,9 +521,17 @@ int main(
                 throw std::runtime_error("mpi_sort: rename local_sorted fallito");
 
         } else {
-            // Multi-pass semplice: default finale per il merge locale.
-            kwayMerge(runPaths, localSorted, mergeFan,
-                      /*deleteRuns=*/true, /*parallelMerge=*/false);
+            // Con piu' thread per rank, parallelizza i gruppi indipendenti
+            // del merge locale. Con un solo thread resta il percorso seriale.
+            if (nThreads > 1) {
+                ompKwayMergeMultipass(runPaths, localSorted, mergeFan,
+                                      /*deleteRuns=*/true,
+                                      /*parallelMerge=*/true);
+            } else {
+                kwayMerge(runPaths, localSorted, mergeFan,
+                          /*deleteRuns=*/true,
+                          /*parallelMerge=*/false);
+            }
         }
     }
 

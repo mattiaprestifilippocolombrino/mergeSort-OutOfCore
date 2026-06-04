@@ -296,7 +296,7 @@ cd ~/spmProject
 for n in 1 2 4 8; do
   for t in 1 4 8 16 32; do
     RUN_STRONG=1 RUN_WEAK=0 \
-    BENCHMARK_CASES="manySmall50M:50000000:64" \
+    BENCHMARK_CASES="manySmall200M:200000000:64" \
     STRONG_NODES="$n" \
     RANKS_PER_NODE=1 \
     MPI_THREAD_LIST="$t" \
@@ -319,7 +319,9 @@ tail -n 80 "$RUN_DIR"/logs/mpi_strong_*.log
 ```
 
 Nel report collega questa parte ad Amdahl: comunicazione, I/O, merge locale e
-merge distribuito limitano lo speedup.
+merge distribuito limitano lo speedup. Con piu' di un thread per rank, il merge
+locale MPI usa OpenMP multi-pass parallelo e viene indicato come
+`mpi_local_omp_multipass`.
 
 ## 11. MPI weak capacity
 

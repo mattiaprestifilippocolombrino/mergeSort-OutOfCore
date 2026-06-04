@@ -58,10 +58,11 @@ def grouped(rows: list[dict[str, str]], keys: list[str]):
 def summarize(rows: list[dict[str, str]], keys: list[str], drop_worst: bool) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for values, group in grouped(rows, keys).items():
-        times = [as_float(row, "total_s") for row in group]
-        times = [t for t in times if math.isfinite(t)]
-        if drop_worst and len(times) >= 3:
-            times.remove(max(times))
+        kept_rows = [row for row in group if math.isfinite(as_float(row, "total_s"))]
+        if drop_worst and len(kept_rows) >= 3:
+            worst = max(range(len(kept_rows)), key=lambda i: as_float(kept_rows[i], "total_s"))
+            kept_rows.pop(worst)
+        times = [as_float(row, "total_s") for row in kept_rows]
         if not times:
             continue
 
@@ -73,10 +74,8 @@ def summarize(rows: list[dict[str, str]], keys: list[str], drop_worst: bool) -> 
         template["stdev_total_s"] = f"{statistics.stdev(times):.9g}" if len(times) > 1 else "0"
 
         for phase in ("sort_s", "merge_s"):
-            phase_times = [as_float(row, phase) for row in group]
+            phase_times = [as_float(row, phase) for row in kept_rows]
             phase_times = [t for t in phase_times if math.isfinite(t)]
-            if drop_worst and len(phase_times) >= 3:
-                phase_times.remove(max(phase_times))
             template[f"avg_{phase}"] = f"{statistics.fmean(phase_times):.9g}" if phase_times else "nan"
 
         for metric in (
@@ -89,7 +88,7 @@ def summarize(rows: list[dict[str, str]], keys: list[str], drop_worst: bool) -> 
             "throughput_gib_s",
             "throughput_gib_node_s",
         ):
-            values_for_metric = [as_float(row, metric) for row in group]
+            values_for_metric = [as_float(row, metric) for row in kept_rows]
             values_for_metric = [v for v in values_for_metric if math.isfinite(v)]
             if values_for_metric:
                 template[f"avg_{metric}"] = f"{statistics.fmean(values_for_metric):.9g}"

@@ -28,8 +28,10 @@ Nei CSV verrà indicata la `local_merge_impl` o `merge_impl` come **multipass**:
 questo rappresenta il merge multi-pass semplice, scelto come versione principale
 perche' e' prevedibile su cluster HPC e non crea writer thread extra. OpenMP e
 FastFlow passano `--multipass-merge` in modo esplicito; MPI usa il merge locale
-multi-pass di default. Il parametro `MERGE_FAN` controlla il fan-in massimo per
-ogni merge.
+multi-pass di default. Con `threads/rank > 1`, il merge locale MPI parallelizza
+i gruppi indipendenti con OpenMP e viene marcato come
+`mpi_local_omp_multipass`. Il parametro `MERGE_FAN` controlla il fan-in massimo
+per ogni merge.
 
 Le versioni pipeline e flat sono materiale legacy: i file sono nelle cartelle
 `legacy` e non sono usati dagli script di misura correnti.
@@ -231,7 +233,7 @@ Job finali strong, uno per punto della curva:
 for n in 1 2 4 8; do
   for t in 1 4 8 16 32; do
     RUN_STRONG=1 RUN_WEAK=0 \
-    BENCHMARK_CASES="manySmall50M:50000000:64" \
+    BENCHMARK_CASES="manySmall200M:200000000:64" \
     STRONG_NODES="$n" \
     RANKS_PER_NODE=1 \
     MPI_THREAD_LIST="$t" \
@@ -266,7 +268,9 @@ ls -lh "$RUN_DIR/logs"
 ```
 
 Nel report interpreta questa parte con Amdahl: I/O, merge locale, merge
-distribuito e comunicazione limitano lo speedup.
+distribuito e comunicazione limitano lo speedup. Con `threads/rank > 1` il
+merge locale usa OpenMP multi-pass parallelo e nel CSV appare come
+`mpi_local_omp_multipass`.
 
 ## MPI weak capacity
 

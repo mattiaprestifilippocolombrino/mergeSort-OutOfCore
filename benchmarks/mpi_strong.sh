@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -Eeuo pipefail
+BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall200M:200000000:64}"
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 CSV="${1:-$RESULTS_DIR/mpi_strong_raw.csv}"
@@ -17,7 +18,6 @@ fi
 write_csv_header "$CSV" \
     "suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,chunk_mb,merge_fan,local_merge_impl,generated_runs,sort_s,merge_s,total_s,verified,log_file"
 
-mpi_local_merge_impl="mpi_local_multipass"
 mpi_local_merge_args=(--multipass-local-merge)
 
 allocated_nodes="${SLURM_JOB_NUM_NODES:-0}"
@@ -44,6 +44,11 @@ for spec in $BENCHMARK_CASES; do
 
         for threads in $MPI_THREAD_LIST; do
             total_cores=$((ranks * threads))
+            if (( threads > 1 )); then
+                mpi_local_merge_impl="mpi_local_omp_multipass"
+            else
+                mpi_local_merge_impl="mpi_local_multipass"
+            fi
 
             for trial in $(seq 1 "$TRIALS"); do
                 output="$TMP_BASE/out_strong_${name}_n${nodes}_r${ranks}_t${threads}_i${trial}.bin"
