@@ -3,8 +3,8 @@
 #SBATCH --partition=normal
 #SBATCH --nodes=8
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --time=00:20:00
+#SBATCH --cpus-per-task=32
+#SBATCH --time=00:29:00
 #SBATCH --output=slurm_mpi_%j.out
 #SBATCH --error=slurm_mpi_%j.err
 
@@ -61,14 +61,16 @@ if command -v scontrol >/dev/null 2>&1; then
     scontrol show hostnames "${SLURM_JOB_NODELIST:-}"
 fi
 
-export STRONG_NODES="${STRONG_NODES:-1 2}"
+export STRONG_NODES="${STRONG_NODES:-${SLURM_JOB_NUM_NODES:-1}}"
 export RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
-export MPI_THREAD_LIST="${MPI_THREAD_LIST:-4 16}"
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
-export WEAK_CASES="${WEAK_CASES:-weakSmall2500k:2500000:64}"
+export MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 8 16 32}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 export PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 export CHUNK_MB="${CHUNK_MB:-64}"
-export MERGE_FAN="${MERGE_FAN:-64}"
+export MERGE_FAN="${MERGE_FAN:-8}"
+export WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-64}"
+export WEAK_TIME_BUDGET_SECONDS="${WEAK_TIME_BUDGET_SECONDS:-180}"
+export WEAK_PROBE_CHUNKS_PER_RANK="${WEAK_PROBE_CHUNKS_PER_RANK:-$MERGE_FAN}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
 export RUN_STRONG="${RUN_STRONG:-1}"

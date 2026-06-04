@@ -137,7 +137,7 @@ add_custom_target(run_test_omp
     COMMAND ${CMAKE_COMMAND} -E echo "=== Test OMP multi-pass - 500k record ==="
     COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
     COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input.bin 500000 --payload-max 64
-    COMMAND ./omp_sort  ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 64
+    COMMAND ./omp_sort  ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin --chunk-mb 64 --threads 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 8
     COMMAND ./verify    ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin
     COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input.bin ${SPM_TEST_SCRATCH}/test_output_omp.bin
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -150,7 +150,7 @@ if(FF_FOUND)
         COMMAND ${CMAKE_COMMAND} -E echo "=== Test FastFlow multi-pass - 500k record ==="
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
         COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input_ff.bin 500000 --payload-max 256
-        COMMAND ./ff_sort   ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 64
+        COMMAND ./ff_sort   ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin --chunk-mb 64 --workers 4 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-merge --merge-fan 8
         COMMAND ./verify    ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin
         COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input_ff.bin ${SPM_TEST_SCRATCH}/test_output_ff.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -164,7 +164,7 @@ if(MPI_CXX_FOUND)
         COMMAND ${CMAKE_COMMAND} -E echo "=== Test MPI - 500k record, 2 rank ==="
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SPM_TEST_SCRATCH}
         COMMAND ./generate ${SPM_TEST_SCRATCH}/test_input_mpi.bin 500000 --payload-max 256
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-local-merge --merge-fan 64
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ./mpi_sort ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin --chunk-mb 64 --threads 2 --tmp-dir ${SPM_TEST_SCRATCH} --multipass-local-merge --merge-fan 8
         COMMAND ./verify ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin
         COMMAND ${CMAKE_COMMAND} -E remove ${SPM_TEST_SCRATCH}/test_input_mpi.bin ${SPM_TEST_SCRATCH}/test_output_mpi.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}

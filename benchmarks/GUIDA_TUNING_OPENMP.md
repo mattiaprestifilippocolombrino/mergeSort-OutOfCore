@@ -32,41 +32,15 @@ VERIFY=0
 Questo misura sia la baseline a 1 thread sia il caso parallelo a 32 thread,
 senza mischiare troppe dimensioni in un solo job.
 
-## Job 1: chunk piccoli e fan medio
+## Job finale: parametri fissati
 
 ```bash
 cd ~/spmProject
 ./benchmarks/setup_scratch.sh
 BENCHMARK_CASES="tuneSmall10M:10000000:64" \
 THREAD_LIST="1 32" \
-CHUNK_MB_LIST="64 128" \
-MERGE_FAN_LIST="32 64" \
-PAYLOAD_MAX_BUILD=4096 TRIALS=1 VERIFY=0 \
-sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
-```
-
-## Job 2: chunk grandi e fan medio
-
-```bash
-cd ~/spmProject
-./benchmarks/setup_scratch.sh
-BENCHMARK_CASES="tuneSmall10M:10000000:64" \
-THREAD_LIST="1 32" \
-CHUNK_MB_LIST="256 512" \
-MERGE_FAN_LIST="32 64" \
-PAYLOAD_MAX_BUILD=4096 TRIALS=1 VERIFY=0 \
-sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
-```
-
-## Job 3: fan alto
-
-```bash
-cd ~/spmProject
-./benchmarks/setup_scratch.sh
-BENCHMARK_CASES="tuneSmall10M:10000000:64" \
-THREAD_LIST="1 32" \
-CHUNK_MB_LIST="64 128 256 512" \
-MERGE_FAN_LIST="128" \
+CHUNK_MB_LIST="64" \
+MERGE_FAN_LIST="8" \
 PAYLOAD_MAX_BUILD=4096 TRIALS=1 VERIFY=0 \
 sbatch --time=00:15:00 benchmarks/slurm_tune_single_node.sbatch
 ```
@@ -105,8 +79,8 @@ descriptor e memoria per merge task.
 La campagna consegna usa attualmente:
 
 ```bash
-CHUNK_MB=128
-MERGE_FAN=64
+CHUNK_MB=64
+MERGE_FAN=8
 ```
 
 Se il tuning mostra una configurazione migliore, aggiorna solo i comandi delle

@@ -9,17 +9,16 @@ rimossi a fine job; imposta `CLEAN_SCRATCH=0` solo per debug.
 ## Parametri consigliati
 
 > [!TIP]
-> **I valori di CHUNK_MB e MERGE_FAN sono solo esempi!**
-> Le prestazioni ottimali dipendono fortemente dall'hardware del cluster (disco NVMe vs HDD, latenza di rete, RAM disponibile).
-> **Prima** di eseguire le misurazioni descritte qui sotto, lancia lo script di tuning per trovare i tuoi valori ideali:
+> **Versione finale:** usa `CHUNK_MB=64` e `MERGE_FAN=8`.
+> Le prestazioni ottimali dipendono dall'hardware del cluster, ma questi sono
+> i parametri fissati per la campagna finale.
 > ```bash
 > sbatch benchmarks/slurm_tune_single_node.sbatch
 > ```
-> Sostituisci poi `128` negli script sottostanti con il valore ottimale ricavato. Per ora `MERGE_FAN` resta fissato a `64`.
 
 ```bash
-CHUNK_MB=128    # <--- SOSTITUISCI CON IL TUO VALORE OTTIMALE
-MERGE_FAN=64
+CHUNK_MB=64
+MERGE_FAN=8
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
@@ -138,15 +137,13 @@ nella stessa configurazione `threads_per_rank`. Se vuoi uno speedup rispetto
 alla sequenziale pura, confronta con la riga `nodes=1`, `ranks=1`,
 `threads_per_rank=1`.
 
-MPI weak:
+MPI weak capacity:
 
 ```text
-total_speedup = T_base / T_p
-total_efficiency = total_speedup
-phase1_speedup = sort_base / sort_p
-phase1_efficiency = phase1_speedup
-phase2_speedup = merge_base / merge_p
-phase2_efficiency = phase2_speedup
+capacity_gib_per_node = (input_gib / total_s) * 180 / nodes
+capacity_total_gib = (input_gib / total_s) * 180
+throughput_gib_node_s = (input_gib / total_s) / nodes
+throughput_gib_s = input_gib / total_s
 ```
 
 Gli alias storici `speedup`, `efficiency`, `sort_speedup`, `sort_efficiency`,
@@ -159,9 +156,9 @@ I grafici in `plots/` mostrano insieme total, phase 1 e phase 2.
 
 ```bash
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -184,9 +181,9 @@ campagna OpenMP.
 
 ```bash
 RUN_OMP=0 RUN_FF=1 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=900 \
 FF_ROOT="$HOME/fastFlow" \
@@ -210,7 +207,7 @@ non e' valida: conserva il log e commentalo.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="mediumPayload8M:8000000:512 largePayload2M:2000000:2048" \
 THREAD_LIST="1 8 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:25:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -228,31 +225,34 @@ ls -lh "$RUN_DIR/logs"
 Dataset fisso, nodi crescenti. Lo script copia l'input su `/scratch` locale dei
 nodi usati prima del sorter; questa copia non entra nei tempi.
 
-Job 1, nodi 1 e 2:
+Job finali strong, uno per punto della curva:
 
 ```bash
-RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
-STRONG_NODES="1 2" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=2 --time=00:25:00 benchmarks/slurm_mpi_scaling.sbatch
+for n in 1 2 4 8; do
+  for t in 1 4 8 16 32; do
+    RUN_STRONG=1 RUN_WEAK=0 \
+    BENCHMARK_CASES="manySmall50M:50000000:64" \
+    STRONG_NODES="$n" \
+    RANKS_PER_NODE=1 \
+    MPI_THREAD_LIST="$t" \
+    PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+    TRIALS=1 VERIFY=0 \
+    sbatch --nodes="$n" --time=00:29:00 benchmarks/slurm_mpi_scaling.sbatch
+  done
+done
 ```
 
-Job 2, nodi 4 e 8:
+In alternativa, sottometti strong e weak insieme con l'helper finale:
 
 ```bash
-RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
-STRONG_NODES="4 8" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=8 --time=00:25:00 benchmarks/slurm_mpi_scaling.sbatch
+MPI_THREAD_LIST="1 4 8 16 32" \
+./benchmarks/submit_final_mpi_jobs.sh
 ```
+
+L'helper usa job separati per ogni coppia `(nodi, thread/rank)`: `00:29:00`
+per MPI strong e `00:03:00` per MPI weak, mantenendo identici `CHUNK_MB` e
+`MERGE_FAN`.
 
 Controllo:
 
@@ -268,35 +268,29 @@ ls -lh "$RUN_DIR/logs"
 Nel report interpreta questa parte con Amdahl: I/O, merge locale, merge
 distribuito e comunicazione limitano lo speedup.
 
-## MPI weak scaling
+## MPI weak capacity
 
-Il lavoro cresce con i nodi: `2.5M` record per nodo, quindi `20M` record a 8
-nodi.
+La weak finale non passa piu' una dimensione statica del dataset. Per ogni
+coppia `(nodi, thread/rank)` lo script genera una sonda interna derivata da
+`CHUNK_MB`, `MERGE_FAN` e `WEAK_PROBE_CHUNKS_PER_RANK`, misura il throughput e
+lo normalizza su `WEAK_TIME_BUDGET_SECONDS=180`. Il risultato da usare nel
+report e' quanti GiB vengono processati in 3 minuti per nodo e in totale.
 
-Job 1, nodi 1 e 2:
-
-```bash
-RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall2500k:2500000:64" \
-STRONG_NODES="1 2" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
-```
-
-Job 2, nodi 4 e 8:
+Job finali weak, uno per coppia `(nodi, thread/rank)`:
 
 ```bash
-RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall2500k:2500000:64" \
-STRONG_NODES="4 8" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+for n in 1 2 4 8; do
+  for t in 1 4 8 16 32; do
+    RUN_STRONG=0 RUN_WEAK=1 \
+    STRONG_NODES="$n" \
+    RANKS_PER_NODE=1 \
+    MPI_THREAD_LIST="$t" \
+    PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+    WEAK_TIME_BUDGET_SECONDS=180 \
+    TRIALS=1 VERIFY=0 \
+    sbatch --nodes="$n" --time=00:03:00 benchmarks/slurm_mpi_scaling.sbatch
+  done
+done
 ```
 
 Controllo:
@@ -317,7 +311,7 @@ La verifica va tenuta fuori dai benchmark finali e fatta su una run piccola.
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```

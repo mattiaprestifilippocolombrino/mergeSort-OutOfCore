@@ -16,7 +16,7 @@ DATA_DIR="${DATA_DIR:-$TMP_BASE/spm_benchmark_data}"
 
 PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 CHUNK_MB="${CHUNK_MB:-64}"
-MERGE_FAN="${MERGE_FAN:-64}"
+MERGE_FAN="${MERGE_FAN:-8}"
 TRIALS="${TRIALS:-1}"
 VERIFY="${VERIFY:-0}"
 SEED="${SEED:-42}"
@@ -25,15 +25,15 @@ RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-0}"
 # Two intentionally different regimes:
 # - many short records: stresses comparisons, indexing, task scheduling;
 # - fewer large records: stresses I/O bandwidth and payload movement.
-BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
+BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 
 THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
-MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 16}"
+MPI_THREAD_LIST="${MPI_THREAD_LIST:-1 4 8 16 32}"
 STRONG_NODES="${STRONG_NODES:-1 2 4 8}"
 RANKS_PER_NODE="${RANKS_PER_NODE:-1}"
-WEAK_RECORDS_PER_NODE="${WEAK_RECORDS_PER_NODE:-6250000}"
 WEAK_PAYLOAD_MAX="${WEAK_PAYLOAD_MAX:-64}"
-WEAK_CASES="${WEAK_CASES:-weak_p${WEAK_PAYLOAD_MAX}_rpn${WEAK_RECORDS_PER_NODE}:${WEAK_RECORDS_PER_NODE}:${WEAK_PAYLOAD_MAX}}"
+WEAK_TIME_BUDGET_SECONDS="${WEAK_TIME_BUDGET_SECONDS:-180}"
+WEAK_PROBE_CHUNKS_PER_RANK="${WEAK_PROBE_CHUNKS_PER_RANK:-$MERGE_FAN}"
 
 log() {
     printf '[bench] %s\n' "$*" >&2
@@ -89,6 +89,9 @@ validate_benchmark_config() {
     fi
     require_positive_uint "TRIALS" "$TRIALS"
     require_uint "RUN_TIMEOUT_SECONDS" "$RUN_TIMEOUT_SECONDS"
+    require_positive_uint "WEAK_PAYLOAD_MAX" "$WEAK_PAYLOAD_MAX"
+    require_positive_uint "WEAK_TIME_BUDGET_SECONDS" "$WEAK_TIME_BUDGET_SECONDS"
+    require_positive_uint "WEAK_PROBE_CHUNKS_PER_RANK" "$WEAK_PROBE_CHUNKS_PER_RANK"
 
     local chunk_bytes=$((CHUNK_MB * 1024 * 1024))
     local min_record_bytes=$((PAYLOAD_MAX_BUILD + 12))

@@ -393,8 +393,10 @@ Per lo strong scaling il dataset resta fisso e si aumentano nodi, processi MPI e
 ```bash
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 2 4 8 16" \
-TRIALS=5 \
+MPI_THREAD_LIST="1 4 8 16 32" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+TRIALS=1 \
 ./benchmarks/mpi_strong.sh
 ```
 
@@ -411,34 +413,46 @@ La baseline e' la configurazione con il numero minimo di core totali disponibile
 benchmark_results/run_*/mpi_strong_summary.csv
 ```
 
-### 10.4 Weak scaling MPI
+### 10.4 Weak capacity MPI
 
-Per il weak scaling il lavoro cresce proporzionalmente al numero di nodi. Lo script usa `WEAK_RECORDS_PER_NODE` e genera automaticamente dataset piu' grandi al crescere dei nodi:
+Per la weak capacity si fissa il tempo e si misura quanta informazione viene
+processata. Si ha weak scaling quando, nello stesso intervallo di tempo,
+aumentando il numero `p` di processori aumenta la quantita' di lavoro
+completata. Lo script non riceve piu' una dimensione dati statica: genera una
+sonda interna derivata da `CHUNK_MB`, `MERGE_FAN` e
+`WEAK_PROBE_CHUNKS_PER_RANK`, misura il throughput e lo normalizza su 180
+secondi:
 
 ```bash
 STRONG_NODES="1 2 4 8" \
 RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="1 2 4 8 16" \
-WEAK_RECORDS_PER_NODE=1000000 \
-WEAK_PAYLOAD_MAX=256 \
-TRIALS=5 \
+MPI_THREAD_LIST="1 4 8 16 32" \
+WEAK_PAYLOAD_MAX=64 \
+WEAK_TIME_BUDGET_SECONDS=180 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+TRIALS=1 \
 ./benchmarks/mpi_weak.sh
 ```
 
-La metrica principale e':
+Le metriche principali sono:
 
 ```text
-weak_efficiency = T_base / T(p)
+capacity_gib_per_node = (input_gib / total_s) * 180 / nodes
+capacity_total_gib    = (input_gib / total_s) * 180
 ```
 
-dove `T_base` e' il tempo della configurazione con il numero minimo di nodi misurato, a parita' di thread per rank. Idealmente il tempo resta costante e quindi l'efficienza resta vicina a 1.
+dove `180` e' il budget temporale in secondi. In questo modo, a parita' di
+`CHUNK_MB`, `MERGE_FAN` e thread per rank, si legge direttamente quanti GiB ogni
+nodo e l'intero job riescono a processare in 3 minuti.
 
 Sul cluster si possono usare direttamente:
 
 ```bash
-sbatch benchmarks/slurm_single_node.sbatch
-sbatch benchmarks/slurm_mpi_scaling.sbatch
+./benchmarks/submit_final_mpi_jobs.sh
 ```
+
+L'helper sottomette un job MPI separato per ogni coppia `(nodi, thread/rank)`:
+strong sotto i 30 minuti e weak con limite di 3 minuti.
 
 ## 11. Analisi e modello di costo
 

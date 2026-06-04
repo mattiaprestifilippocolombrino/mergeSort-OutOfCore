@@ -79,6 +79,21 @@ def summarize(rows: list[dict[str, str]], keys: list[str], drop_worst: bool) -> 
                 phase_times.remove(max(phase_times))
             template[f"avg_{phase}"] = f"{statistics.fmean(phase_times):.9g}" if phase_times else "nan"
 
+        for metric in (
+            "input_bytes",
+            "total_gib",
+            "gib_per_node",
+            "time_budget_s",
+            "capacity_total_gib",
+            "capacity_gib_per_node",
+            "throughput_gib_s",
+            "throughput_gib_node_s",
+        ):
+            values_for_metric = [as_float(row, metric) for row in group]
+            values_for_metric = [v for v in values_for_metric if math.isfinite(v)]
+            if values_for_metric:
+                template[f"avg_{metric}"] = f"{statistics.fmean(values_for_metric):.9g}"
+
         out.append(template)
     return out
 
@@ -223,7 +238,8 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
         )
         nodes = as_int(row, "nodes")
         time = as_float(row, "avg_total_s")
-        if not math.isfinite(time) or nodes <= 0:
+        capacity_total = as_float(row, "avg_capacity_total_gib")
+        if nodes <= 0 or (not math.isfinite(time) and not math.isfinite(capacity_total)):
             continue
         old = baselines.get(key)
         if old is None or nodes < old[1]:
@@ -232,6 +248,8 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
                     "total": time,
                     "sort": as_float(row, "avg_sort_s"),
                     "merge": as_float(row, "avg_merge_s"),
+                    "capacity_total": capacity_total,
+                    "capacity_node": as_float(row, "avg_capacity_gib_per_node"),
                 },
                 nodes,
             )
@@ -252,6 +270,27 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
             base_times = {}
             row["baseline_nodes"] = "0"
 
+        capacity_total = as_float(row, "avg_capacity_total_gib")
+        capacity_node = as_float(row, "avg_capacity_gib_per_node")
+        base_capacity_total = base_times.get("capacity_total", math.nan)
+        base_capacity_node = base_times.get("capacity_node", math.nan)
+        if math.isfinite(capacity_total) and capacity_total > 0 and math.isfinite(base_capacity_total) and base_capacity_total > 0:
+            capacity_scale = capacity_total / base_capacity_total
+            row["baseline_capacity_total_gib"] = f"{base_capacity_total:.9g}"
+            row["weak_capacity_scale"] = f"{capacity_scale:.9g}"
+        else:
+            capacity_scale = math.nan
+            row["baseline_capacity_total_gib"] = "nan"
+            row["weak_capacity_scale"] = "nan"
+        if math.isfinite(capacity_node) and capacity_node > 0 and math.isfinite(base_capacity_node) and base_capacity_node > 0:
+            capacity_efficiency = capacity_node / base_capacity_node
+            row["baseline_capacity_gib_per_node"] = f"{base_capacity_node:.9g}"
+            row["weak_capacity_efficiency"] = f"{capacity_efficiency:.9g}"
+        else:
+            capacity_efficiency = math.nan
+            row["baseline_capacity_gib_per_node"] = "nan"
+            row["weak_capacity_efficiency"] = "nan"
+
         def add_phase_metrics(label: str, avg_key: str, speedup_key: str, efficiency_key: str) -> None:
             base_time = base_times.get(label, math.nan)
             time = as_float(row, avg_key)
@@ -266,8 +305,12 @@ def add_weak_metrics(rows: list[dict[str, str]]) -> None:
         add_phase_metrics("total", "avg_total_s", "weak_speedup", "weak_efficiency")
         add_phase_metrics("sort", "avg_sort_s", "weak_sort_speedup", "weak_sort_efficiency")
         add_phase_metrics("merge", "avg_merge_s", "weak_merge_speedup", "weak_merge_efficiency")
-        row["total_speedup"] = row["weak_speedup"]
-        row["total_efficiency"] = row["weak_efficiency"]
+        if math.isfinite(capacity_scale) and math.isfinite(capacity_efficiency):
+            row["total_speedup"] = row["weak_capacity_scale"]
+            row["total_efficiency"] = row["weak_capacity_efficiency"]
+        else:
+            row["total_speedup"] = row["weak_speedup"]
+            row["total_efficiency"] = row["weak_efficiency"]
         row["phase1_speedup"] = row["weak_sort_speedup"]
         row["phase1_efficiency"] = row["weak_sort_efficiency"]
         row["phase2_speedup"] = row["weak_merge_speedup"]
@@ -353,12 +396,18 @@ def maybe_plot(output_dir: Path, single: list[dict[str, str]], strong: list[dict
         axes[0].set_ylabel("seconds")
         axes[0].grid(True, alpha=0.3)
         axes[0].legend()
-        axes[1].plot(xs, [as_float(r, "weak_efficiency") for r in group], marker="o", label="total")
-        axes[1].plot(xs, [as_float(r, "weak_sort_efficiency") for r in group], marker="o", label="phase 1")
-        axes[1].plot(xs, [as_float(r, "weak_merge_efficiency") for r in group], marker="o", label="phase 2")
-        axes[1].set_title(f"weak efficiency {case}, {local_merge_impl}, t/rank={threads}")
+        if any(math.isfinite(as_float(r, "avg_capacity_gib_per_node")) for r in group):
+            axes[1].plot(xs, [as_float(r, "avg_capacity_gib_per_node") for r in group], marker="o", label="per node")
+            axes[1].plot(xs, [as_float(r, "avg_capacity_total_gib") for r in group], marker="o", label="total")
+            axes[1].set_title(f"weak capacity {case}, {local_merge_impl}, t/rank={threads}")
+            axes[1].set_ylabel("GiB in budget")
+        else:
+            axes[1].plot(xs, [as_float(r, "weak_efficiency") for r in group], marker="o", label="total")
+            axes[1].plot(xs, [as_float(r, "weak_sort_efficiency") for r in group], marker="o", label="phase 1")
+            axes[1].plot(xs, [as_float(r, "weak_merge_efficiency") for r in group], marker="o", label="phase 2")
+            axes[1].set_title(f"weak efficiency {case}, {local_merge_impl}, t/rank={threads}")
+            axes[1].set_ylabel("efficiency")
         axes[1].set_xlabel("nodes")
-        axes[1].set_ylabel("efficiency")
         axes[1].grid(True, alpha=0.3)
         axes[1].legend()
         fig.tight_layout()
@@ -439,6 +488,7 @@ def main() -> None:
             "records_per_node",
             "chunk_mb",
             "merge_fan",
+            "probe_chunks_per_rank",
             "local_merge_impl",
             "generated_runs",
         ],

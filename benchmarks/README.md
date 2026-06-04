@@ -20,15 +20,15 @@ benchmark_results/run_<jobid>/single_node_tuning_raw.csv
 benchmark_results/run_<jobid>/single_node_tuning_summary.csv
 ```
 
-Configurazione:
+Configurazione finale:
 
 ```bash
-CHUNK_MB_LIST="64 128 256"
-MERGE_FAN_LIST="32 64 128"
+CHUNK_MB_LIST="64"
+MERGE_FAN_LIST="8"
 THREAD_LIST="1 32"
 ```
 
-Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`. La campagna finale usa `MERGE_FAN=64` e resta divisa in piu' job sotto i 30 minuti.
+La campagna finale usa `CHUNK_MB=64` e `MERGE_FAN=8`.
 
 ## Campagna finale
 
@@ -37,7 +37,7 @@ Si sceglie la configurazione con `avg_total_s` piu' basso a `threads=32`. La cam
 Caso principale:
 
 ```bash
-manySmall20M:20000000:64
+manySmall50M:50000000:64
 ```
 
 Thread:
@@ -78,7 +78,7 @@ di total, sort e merge sono mostrate insieme.
 
 ### Payload distribution
 
-La campagna principale `manySmall20M:20000000:64` copre il caso "grande N, payload piccolo" senza creare job monolitici. Per completare la richiesta, si aggiungono due casi con meno record e payload piu' grande:
+La campagna principale `manySmall50M:50000000:64` copre il caso "grande N, payload piccolo" su cluster a 8 nodi. Per completare la richiesta, si aggiungono due casi con meno record e payload piu' grande:
 
 ```bash
 mediumPayload8M:8000000:512
@@ -98,7 +98,7 @@ Questa parte mostra il passaggio da molti record piccoli a meno record con paylo
 Dataset fisso:
 
 ```bash
-manySmall20M:20000000:64
+manySmall50M:50000000:64
 ```
 
 Nodi:
@@ -113,7 +113,7 @@ Con `RANKS_PER_NODE=1`, i processi MPI sono 1, 2, 4, 8.
 Thread per processo:
 
 ```bash
-1 4 16
+1 4 8 16 32
 ```
 
 Il dataset viene generato una volta in `benchmark_data` e poi copiato
@@ -131,28 +131,32 @@ avg_merge_s = Fase 2 distribuita: merge ad albero tra rank MPI
 Quindi `avg_sort_s` in MPI non e' solo il tempo di `std::sort`, ma l'intera
 fase locale prima del merge distribuito.
 
-### MPI weak scaling
+### MPI weak capacity
 
-Record per nodo:
+La weak non riceve piu' una dimensione statica del dataset. Per ogni coppia
+`(nodi, thread/rank)` lo script genera una sonda interna derivata da
+`CHUNK_MB`, `MERGE_FAN` e `WEAK_PROBE_CHUNKS_PER_RANK`, misura il tempo del
+sorter e normalizza il throughput su `WEAK_TIME_BUDGET_SECONDS=180`.
 
-```bash
-weakSmall2500k:2500000:64
-```
-
-Quindi:
+Il CSV riporta:
 
 ```text
-1 nodo  -> 2.5M record
-2 nodi  -> 5M record
-4 nodi  -> 10M record
-8 nodi  -> 20M record
+avg_capacity_gib_per_node
+avg_capacity_total_gib
+avg_throughput_gib_node_s
+avg_throughput_gib_s
 ```
+
+Queste colonne rispondono alla domanda: con lo stesso chunk size, merge fan e
+numero di thread, quanti GiB vengono processati in 3 minuti per nodo e in
+totale.
 
 ## Script principali
 
 - `slurm_tune_single_node.sbatch`: tuning breve OpenMP di `CHUNK_MB` e `MERGE_FAN`;
 - `slurm_single_node.sbatch`: single-node OpenMP/FastFlow;
 - `slurm_mpi_scaling.sbatch`: MPI strong oppure weak;
+- `submit_final_mpi_jobs.sh`: sottomette i job MPI finali separati per 1, 2, 4 e 8 nodi;
 - `tune_single_node.sh`: loop di tuning;
 - `single_node.sh`: esecuzione single-node;
 - `mpi_strong.sh`: strong scaling;
@@ -168,14 +172,18 @@ la propria directory scratch all'inizio di ogni job.
 
 ```bash
 CHUNK_MB=64
-MERGE_FAN=64
+MERGE_FAN=8
 PAYLOAD_MAX_BUILD=4096
 TRIALS=1
 VERIFY=0
 RUN_TIMEOUT_SECONDS=180
 ```
 
-`MERGE_FAN=64` controlla il fan-in massimo del multi-pass e per ora resta fisso. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node.
+`MERGE_FAN=8` controlla il fan-in massimo del multi-pass nella versione finale. `VERIFY=1` va usato solo su una run piccola finale di correttezza. `RUN_TIMEOUT_SECONDS` vale per le run single-node.
+Per MPI, i job finali sono suddivisi per ogni coppia `(nodi, thread/rank)`:
+`MPI_STRONG_TIME` vale `00:29:00` di default, mentre `MPI_WEAK_TIME` vale
+`00:03:00`. La capacita' weak viene normalizzata su
+`WEAK_TIME_BUDGET_SECONDS=180`.
 
 Per i test finali con payload fino a 4096 byte lascia ricompilare gli script,
 cioe' non impostare `SKIP_BUILD=1`. Se `SKIP_BUILD=1` viene usato per run
@@ -227,7 +235,8 @@ strong e MPI weak.
 
 ## Note metodologiche
 
-- `20M` e' il caso principale finale per mantenere ogni job sotto i 30 minuti.
+- `50M` e' il dataset fisso per lo strong scaling MPI.
+- La weak finale misura capacita' in 3 minuti, non una dimensione dati fissata a priori.
 - Prima si fa un tuning breve OpenMP di `CHUNK_MB` e `MERGE_FAN`, poi si usa la stessa configurazione per la campagna finale.
 - OpenMP e FastFlow sono in job separati, cosi' un problema FastFlow non rovina le misure OpenMP.
 - Se `RUN_FF=1` ma `ff_sort` non e' stato compilato, lo script fallisce subito invece di saltare FastFlow in silenzio.

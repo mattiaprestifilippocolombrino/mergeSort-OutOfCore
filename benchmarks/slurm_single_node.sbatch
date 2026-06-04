@@ -47,10 +47,10 @@ if command -v scontrol >/dev/null 2>&1; then
 fi
 
 export THREAD_LIST="${THREAD_LIST:-1 2 4 8 16 32}"
-export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall20M:20000000:64}"
+export BENCHMARK_CASES="${BENCHMARK_CASES:-manySmall50M:50000000:64}"
 export PAYLOAD_MAX_BUILD="${PAYLOAD_MAX_BUILD:-4096}"
 export CHUNK_MB="${CHUNK_MB:-64}"
-export MERGE_FAN="${MERGE_FAN:-64}"
+export MERGE_FAN="${MERGE_FAN:-8}"
 export TRIALS="${TRIALS:-1}"
 export VERIFY="${VERIFY:-0}"
 export RUN_OMP="${RUN_OMP:-1}"

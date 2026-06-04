@@ -8,8 +8,8 @@ CSV="${1:-$RESULTS_DIR/single_node_tuning_raw.csv}"
 validate_benchmark_config
 prepare_build
 
-CHUNK_MB_LIST="${CHUNK_MB_LIST:-64 128 256}"
-MERGE_FAN_LIST="${MERGE_FAN_LIST:-64}"
+CHUNK_MB_LIST="${CHUNK_MB_LIST:-64}"
+MERGE_FAN_LIST="${MERGE_FAN_LIST:-8}"
 
 write_csv_header "$CSV" \
     "suite,impl,merge_impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file"

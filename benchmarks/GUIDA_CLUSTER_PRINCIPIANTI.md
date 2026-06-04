@@ -156,14 +156,13 @@ phase1_speedup, phase1_efficiency
 phase2_speedup, phase2_efficiency
 ```
 
-MPI weak:
+MPI weak capacity:
 
 ```text
 nodes, records, records_per_node
 avg_total_s, avg_sort_s, avg_merge_s
-total_speedup, total_efficiency
-phase1_speedup, phase1_efficiency
-phase2_speedup, phase2_efficiency
+avg_capacity_gib_per_node, avg_capacity_total_gib
+avg_throughput_gib_node_s, avg_throughput_gib_s
 ```
 
 Formule:
@@ -202,15 +201,14 @@ Sono equivalenti rispettivamente a totale, fase 1 e fase 2.
 Serve solo a verificare build, esecuzione e verifier.
 
 > [!TIP]
-> **Il valore di CHUNK_MB=128 nei comandi seguenti e' indicativo.**
-> Le prestazioni ottimali dipendono dall'hardware del cluster. Per ora `MERGE_FAN` resta fissato a `64`.
+> **Versione finale:** nei comandi seguenti usa `CHUNK_MB=64` e `MERGE_FAN=8`.
 
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="quick:1000000:64" \
 THREAD_LIST="1 2" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -233,9 +231,9 @@ Benchmark principale per speedup ed efficiency su un nodo.
 ```bash
 cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 sbatch --time=00:20:00 benchmarks/slurm_single_node.sbatch
 ```
@@ -260,9 +258,9 @@ Lancialo separato da OpenMP.
 ```bash
 cd ~/spmProject
 RUN_OMP=0 RUN_FF=1 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
+BENCHMARK_CASES="manySmall50M:50000000:64" \
 THREAD_LIST="1 2 4 8 16 32" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=0 \
 RUN_TIMEOUT_SECONDS=900 \
 FF_ROOT="$HOME/fastFlow" \
@@ -291,32 +289,22 @@ misurano solo il multi-pass semplice.
 Dataset fisso, nodi crescenti. Lo script copia l'input su `/scratch` locale dei
 nodi prima della misura, quindi la copia non entra in Fase 1/Fase 2/Totale.
 
-Job 1, nodi 1 e 2:
+Job finali strong, uno per punto della curva:
 
 ```bash
 cd ~/spmProject
-RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
-STRONG_NODES="1 2" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
-```
-
-Job 2, nodi 4 e 8:
-
-```bash
-cd ~/spmProject
-RUN_STRONG=1 RUN_WEAK=0 \
-BENCHMARK_CASES="manySmall20M:20000000:64" \
-STRONG_NODES="4 8" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+for n in 1 2 4 8; do
+  for t in 1 4 8 16 32; do
+    RUN_STRONG=1 RUN_WEAK=0 \
+    BENCHMARK_CASES="manySmall50M:50000000:64" \
+    STRONG_NODES="$n" \
+    RANKS_PER_NODE=1 \
+    MPI_THREAD_LIST="$t" \
+    PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+    TRIALS=1 VERIFY=0 \
+    sbatch --nodes="$n" --time=00:29:00 benchmarks/slurm_mpi_scaling.sbatch
+  done
+done
 ```
 
 Controlla:
@@ -333,36 +321,30 @@ tail -n 80 "$RUN_DIR"/logs/mpi_strong_*.log
 Nel report collega questa parte ad Amdahl: comunicazione, I/O, merge locale e
 merge distribuito limitano lo speedup.
 
-## 11. MPI weak scaling
+## 11. MPI weak capacity
 
-Il lavoro cresce con i nodi: `2.5M` record per nodo.
+La weak finale non passa piu' una dimensione statica del dataset. Per ogni
+coppia `(nodi, thread/rank)` lo script genera una sonda interna derivata da
+`CHUNK_MB`, `MERGE_FAN` e `WEAK_PROBE_CHUNKS_PER_RANK`, misura il throughput e
+lo normalizza su `WEAK_TIME_BUDGET_SECONDS=180`. Il risultato da usare nel
+report e' quanti GiB vengono processati in 3 minuti per nodo e in totale.
 
-Job 1, nodi 1 e 2:
-
-```bash
-cd ~/spmProject
-RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall2500k:2500000:64" \
-STRONG_NODES="1 2" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=2 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
-```
-
-Job 2, nodi 4 e 8:
+Job finali weak, uno per coppia `(nodi, thread/rank)`:
 
 ```bash
 cd ~/spmProject
-RUN_STRONG=0 RUN_WEAK=1 \
-WEAK_CASES="weakSmall2500k:2500000:64" \
-STRONG_NODES="4 8" \
-RANKS_PER_NODE=1 \
-MPI_THREAD_LIST="4 16" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
-TRIALS=1 VERIFY=0 \
-sbatch --nodes=8 --time=00:20:00 benchmarks/slurm_mpi_scaling.sbatch
+for n in 1 2 4 8; do
+  for t in 1 4 8 16 32; do
+    RUN_STRONG=0 RUN_WEAK=1 \
+    STRONG_NODES="$n" \
+    RANKS_PER_NODE=1 \
+    MPI_THREAD_LIST="$t" \
+    PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
+    WEAK_TIME_BUDGET_SECONDS=180 \
+    TRIALS=1 VERIFY=0 \
+    sbatch --nodes="$n" --time=00:03:00 benchmarks/slurm_mpi_scaling.sbatch
+  done
+done
 ```
 
 Controlla:
@@ -384,7 +366,7 @@ cd ~/spmProject
 RUN_OMP=1 RUN_FF=0 \
 BENCHMARK_CASES="check:1000000:64" \
 THREAD_LIST="1 8" \
-PAYLOAD_MAX_BUILD=4096 CHUNK_MB=128 MERGE_FAN=64 \
+PAYLOAD_MAX_BUILD=4096 CHUNK_MB=64 MERGE_FAN=8 \
 TRIALS=1 VERIFY=1 \
 sbatch --time=00:10:00 benchmarks/slurm_single_node.sbatch
 ```
