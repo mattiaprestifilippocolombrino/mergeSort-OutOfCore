@@ -1,0 +1,18 @@
+=== OMP MergeSort out-of-core ===
+  input        : /scratch/m.prestifilippoco/spmRun/single/632763/data/manySmall50M_n50000000_p64.bin
+  output       : /scratch/m.prestifilippoco/spmRun/single/632763/work/spm_single_node_bench_632763/omp_manySmall50M_t4_i1.bin
+  chunk        : 64 MB
+  threads      : 4
+  merge impl   : simple multi-pass
+  merge fan-in : 8
+  merge paral. : si
+  tmp          : /scratch/m.prestifilippoco/spmRun/single/632763/work/spm_single_node_bench_632763/spm_omp_565587_21444609960172777_0
+  PAYLOAD_MAX  : 4096 B
+
+Fase 1 (sort): 36 run create in 6.80347 s
+Fase 2 (merge): 15.0268 s
+
+--- Riepilogo tempi ---
+  Sort parallelo (Fase 1) : 6.80347 s
+  K-way merge   (Fase 2) : 15.0268 s
+  Totale                 : 21.8303 s

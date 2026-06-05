@@ -1,0 +1,17 @@
+=== FastFlow MergeSort out-of-core ===
+  input        : /scratch/m.prestifilippoco/spmRun/single/632764/data/manySmall50M_n50000000_p64.bin
+  output       : /scratch/m.prestifilippoco/spmRun/single/632764/work/spm_single_node_bench_632764/ff_manySmall50M_t32_i1.bin
+  chunk        : 64 MB
+  workers      : 32
+  merge impl   : simple multi-pass
+  merge fan-in : 8
+  tmp          : /scratch/m.prestifilippoco/spmRun/single/632764/work/spm_single_node_bench_632764/spm_ff_4155337_21444045478995902_0
+  PAYLOAD_MAX  : 4096 B
+
+Fase 1 (sort FF): 36 run create in 4.4681 s
+Fase 2 (merge): 14.2226 s
+
+--- Riepilogo tempi ---
+  Sort FF (Fase 1)    : 4.4681 s
+  K-way merge (Fase 2): 14.2226 s
+  Totale              : 18.6907 s

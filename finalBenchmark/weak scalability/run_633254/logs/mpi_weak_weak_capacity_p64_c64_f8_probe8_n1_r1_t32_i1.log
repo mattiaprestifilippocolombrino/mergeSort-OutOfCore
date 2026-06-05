@@ -1,0 +1,17 @@
+=== MPI+OMP MergeSort out-of-core ===
+  ranks    : 1
+  threads  : 32
+  chunk    : 64 MB
+  local merge : mpi-local-omp-multipass
+  fan-in   : 8
+  tmp base : /scratch/m.prestifilippoco/spmRun/mpi/633254/work
+
+Input bytes : 536860963
+Stripe bytes: r0=536860963
+Fase 1 (sort locale): 8 run create in 3.23534 s
+Fase 2 (merge distribuito): 1.953e-06 s
+
+--- Riepilogo tempi (rank 0) ---
+  Sort locale  (Fase 1) : 3.23534 s
+  Merge dist.  (Fase 2) : 1.953e-06 s
+  Totale               : 3.2354 s

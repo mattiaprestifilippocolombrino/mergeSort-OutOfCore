@@ -1,0 +1,7 @@
+suite,impl,merge_impl,case,trial,records,payload_max,threads,chunk_mb,merge_fan,generated_runs,sort_s,merge_s,total_s,verified,log_file
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,1,64,8,36,14.5696,20.1973,34.7669,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t1_i1.log
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,2,64,8,36,12.1198,18.9719,31.0918,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t2_i1.log
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,4,64,8,36,6.80347,15.0268,21.8303,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t4_i1.log
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,8,64,8,36,5.05461,14.2573,19.312,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t8_i1.log
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,16,64,8,36,4.66263,13.4332,18.0959,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t16_i1.log
+single_node,omp,omp_multipass,manySmall50M,1,50000000,64,32,64,8,36,4.23334,13.5085,17.7419,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_632763/logs/omp_manySmall50M_t32_i1.log

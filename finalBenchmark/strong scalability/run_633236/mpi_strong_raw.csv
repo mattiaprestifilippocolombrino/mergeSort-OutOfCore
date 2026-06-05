@@ -1,0 +1,2 @@
+suite,case,trial,records,payload_max,nodes,ranks,ranks_per_node,threads_per_rank,total_cores,chunk_mb,merge_fan,local_merge_impl,generated_runs,sort_s,merge_s,total_s,verified,log_file
+mpi_strong,manySmall200M,1,200000000,64,8,8,1,1,8,64,8,mpi_local_multipass,144,60.662,80.4151,141.077,0,/home/m.prestifilippoco/spmProject/benchmark_results/run_633236/logs/mpi_strong_manySmall200M_n8_r8_t1_i1.log
