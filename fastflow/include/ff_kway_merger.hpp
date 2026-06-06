@@ -1,10 +1,6 @@
 #pragma once
 
-// =============================================================================
-// ff_kway_merger.hpp - Fase 2 del MergeSort out-of-core (versione FastFlow)
-// =============================================================================
 /*
-Fase 2 del mergeSort out-of-core.
 Modulo che effettua la fusione (merge) di più file ordinati (run) in un unico file ordinato.
 Algoritmo del merge K-way:
 Si aprono K run ordinate. Si legge il primo record di ogni run.
@@ -12,10 +8,7 @@ Si mette in una min-heap la key del record corrente di ogni run.
 Si estrae sempre la key minima. Si scrive quel record in output. 
 Si avanza solo la run da cui ho preso il record. Si ripete finche' la heap e' vuota.
 Se le run totali sono piu' di merge_fan, non le apro tutte insieme, ma faccio merge multi-pass. 
-
 Questo modulo e' l'equivalente FastFlow di kway_merger.hpp (versione OpenMP).
-kway_merger.hpp    → #pragma omp task  (OMP task pool)
-ff_kway_merger.hpp → ff::ParallelFor   (FF work-stealing lock-free)
 
 Perche' questo modulo esiste separatamente:
 La versione OpenMP del merge NON e' usabile direttamente in ff_sort.cpp.
@@ -25,20 +18,6 @@ farm, i thread OMP ereditano la maschera di affinità ristretta di FastFlow,
 finendo tutti sullo stesso core e causando lock contention e crollo delle
 performance. Usando ff::ParallelFor, un solo runtime gestisce entrambe le
 fasi senza conflitti di affinità.
-
-Architettura del merge parallelo con ff::ParallelFor:
-    Per ogni passata (pass):
-        num_groups = ceil(R / merge_fan)   gruppi indipendenti
-        ff::ParallelFor divide i gruppi tra i worker con work-stealing:
-        Worker 0 → merge_pass(group_0, out_0)
-        Worker 1 → merge_pass(group_1, out_1)
-        ...
-    Barriera implicita a fine parallel_for → passata completata.
-
-    La funzione merge_pass() e' condivisa con kway_merger.hpp (common):
-    tutta la logica K-way con min-heap resta invariata, cambia solo
-    il modo in cui i gruppi vengono distribuiti ai thread.
-
 */
 
 
@@ -175,13 +154,8 @@ parallel_for distribuisce le iterazioni g= [0, num_groups) tra i nworkers thread
 con work-stealing. Ogni iterazione corrisponde a un gruppo indipendente.
 La chiamata e' bloccante: torna solo quando tutti i gruppi della passata
 sono stati fusi. Questo funge da barriera tra una passata e la successiva.
-Le variabili catturate per riferimento sono thread-safe perche':
-  - current_level e next_level sono in sola lettura durante il parallel_for;
-  - merge_error e' un'atomic<bool>;
-  - ogni iterazione scrive su un file di output distinto (next_level[g]).
-  Ogni worker riceve in input un indice g appartenente all'intervallo [0, num_groups).
-
-            */
+Ogni worker riceve in input un indice g appartenente all'intervallo [0, num_groups).
+*/
             pf->parallel_for(0, numGroups, 1, 0,
                 [&](const long g) {                 
                     if (mergeError.load(std::memory_order_relaxed)) return;   // Evito di eseguire merge inutili se un altro gruppo ha gia' fallito.

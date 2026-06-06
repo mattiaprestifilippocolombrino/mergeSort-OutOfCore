@@ -1,7 +1,9 @@
-// =============================================================================
-// omp_sort.cpp  —  MergeSort out-of-core con OpenMP
-// =============================================================================
-//
+/*
+Modulo di main che chiama il chunk_sorter e il kway_merger della versione OpenMP. 
+Si prendono da argv la dimensione del chunk in MB, il numero di thread OpenMP, il path della directory dove mettere i file temporanei, il merge fan massimo K per il merge, e i flag per usare il parallelismo per i gruppi di run nello stesso livello di merge e per mantenere le run. Se non presenti su argv, vengono inizializzati a dei valori di default.
+Si esegue sort_to_runs(), che a partire dal file di input produce per ogni chunk una run ordinata.
+Si chiama ompKwayMerge(), che esegue il merge kway multilivello, partendo da un insieme di run ordinate, e ritornando un unico file di output ordinato. 
+*/
 // Utilizzo:
 //   ./omp_sort <input> <output> [opzioni]
 //
@@ -13,31 +15,7 @@
 //   --no-par-merge       Disabilita merge parallelo
 //   --keep-runs          Non eliminare i file di run dopo il merge (debug)
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// FLUSSO IN DUE FASI
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// FASE 1  —  sort_to_runs()   [chunk_sorter.hpp]
-//   Il thread principale legge il file input a chunk da --chunk-mb MB.
-//   Ogni chunk viene ceduto a un OpenMP task che lo ordina per chiave
-//   (std::sort sull'indice leggero di RecordIndex, zero-copy dei payload)
-//   e lo scrive come file di run ordinata in tmp-dir.
-//
-//   run_0.bin, run_1.bin, run_2.bin, ...  ← ognuno già ordinato
-//
-// FASE 2  —  merge multi-pass [omp_kway_merger.hpp]
-//
-//   La versione standard usa il merge multi-pass semplice: piu' prevedibile su
-//   cluster HPC e senza thread extra.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// PARALLELISMO
-// ─────────────────────────────────────────────────────────────────────────────
-//   Fase 1: ogni chunk è ordinato in un task OMP → parallelismo CPU.
-//   Fase 2: i thread fondono gruppi indipendenti di run nel multi-pass.
-//           Il fan-in limita file descriptor, RAM e numero di passate.
-//
-// =============================================================================
+
 
 #include "chunk_sorter.hpp"               // sort_to_runs()
 #include "omp_kway_merger.hpp"            // ompKwayMergeMultipass()
@@ -75,20 +53,17 @@ int main(int argc, char* argv[]) {
         usage(argv[0]);
     }
 
-    // Parametri di default: chunk corposo e merge multi-pass semplice.
-    // Questa e' la configurazione principale per la consegna HPC.
+    // Parametri di default
     std::string inputPath  = argv[1];
     std::string outputPath = argv[2];
     std::string tmpDir     = "/scratch";
-    size_t      chunkMb    = 256;
+    size_t      chunkMb    = 64;
     int         nThreads    = omp_get_max_threads();
-    int         mergeFan   = 64;
+    int         mergeFan   = 8;
     bool        keepRuns        = false;
     bool        parallelMerge   = true;
 
     // Parsing semplice e diretto delle opzioni.
-    // Mantengo nomi e parametri uguali tra versioni OMP, FF e MPI: rende piu'
-    // facile confrontare i benchmark.
     for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
 
@@ -137,15 +112,10 @@ int main(int argc, char* argv[]) {
               << "  tmp          : " << workTmp.str()    << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX       << " B\n\n";
 
-    // ─────────────────────────────────────────────────────────────────────────
+
     // FASE 1: sort parallelo dei chunk → file di run
-    // ─────────────────────────────────────────────────────────────────────────
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-
-    // sort_to_runs e' il cuore della fase 1:
-    // produce tanti file temporanei ordinati, uno per chunk.
     std::vector<std::string> runs = sortToRuns(inputPath, workTmp.str(), chunkBytes);
-
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     std::cout << "Fase 1 (sort): " << runs.size() << " run create in "
               << seconds(t0, t1) << " s\n";
@@ -160,20 +130,14 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // FASE 2: K-way merge → file di output
-    // ─────────────────────────────────────────────────────────────────────────
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-
-    // Il merge lavora solo su file ordinati: non carica mai tutte le run in RAM.
     ompKwayMergeMultipass(runs, outputPath, mergeFan, /*deleteRuns=*/!keepRuns,
                           /*parallelMerge=*/parallelMerge);
-
     std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
 
-    // ─────────────────────────────────────────────────────────────────────────
+
     // Report finale
-    // ─────────────────────────────────────────────────────────────────────────
     const double ts = seconds(t0, t1); // sort
     const double tm = seconds(t2, t3); // merge
     const double tt = seconds(t0, t3); // totale

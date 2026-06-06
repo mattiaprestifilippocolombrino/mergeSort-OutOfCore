@@ -1,7 +1,3 @@
-// =============================================================================
-// ff_sort.cpp  —  MergeSort out-of-core con FastFlow
-// =============================================================================
-//
 // Utilizzo:
 //   ./ff_sort <input> <output> [opzioni]
 //
@@ -11,38 +7,7 @@
 //   --merge-fan N     Fan-in massimo del merge multi-pass (default: 64)
 //   --multipass-merge Usa merge multi-pass semplice (default)
 //   --keep-runs       Non eliminare i file di run dopo il merge (debug)
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// ARCHITETTURA
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// FASE 1  —  ff_sort_to_runs()   [ff_chunk_sorter.hpp]
-//
-//   ff::farm con Emitter + W Worker (no Collector):
-//
-//   ┌──────────┐      ┌──────────┐
-//   │  Emitter │ ───▶ │ Worker 0 │ ──▶ run_0.bin
-//   │ (legge   │ ───▶ │ Worker 1 │ ──▶ run_1.bin
-//   │  chunk)  │  ... │   ...    │  ...
-//   └──────────┘      └──────────┘
-//
-//   L'Emitter legge il file sequenzialmente e invia ogni chunk a un Worker.
-//   FastFlow bilancia automaticamente il carico con la coda SPSC lock-free.
-//   I Worker ordinano il chunk e scrivono la run su disco.
-//
-// FASE 2  —  merge multi-pass [ff_kway_merger.hpp]
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// DIFFERENZA RISPETTO ALLA VERSIONE OMP
-// ─────────────────────────────────────────────────────────────────────────────
-//   OMP Tasks:    overhead di creazione task ≈ qualche μs (barriera implicita)
-//   FF Farm:      code lock-free SPSC; overhead di comunicazione ≈ ns
-//                 Il thread Emitter non entra in regioni parallele:
-//                 tutta la lettura è sul thread Emitter, zero contesa.
-//   FF ParallelFor: nessun conflitto di CPU affinity tra Fase 1 e Fase 2;
-//                 un solo runtime FF gestisce entrambe le fasi.
-//
-// =============================================================================
+
 
 #include "ff_chunk_sorter.hpp"          // ffSortToRuns()
 #include "ff_kway_merger.hpp"           // ffKwayMergeMultipass()
@@ -86,8 +51,8 @@ int main(int argc, char* argv[]) {
     std::string inputPath  = argv[1];
     std::string outputPath = argv[2];
     std::string tmpDir     = "/scratch";
-    size_t      chunkMb    = 256;
-    int         mergeFan    = 64;
+    size_t      chunkMb    = 64;
+    int         mergeFan    = 8;
     bool        keepRuns    = false;
 
     // ff_numCores() restituisce il numero di core logici disponibili.
@@ -95,8 +60,7 @@ int main(int argc, char* argv[]) {
     int availableCores = static_cast<int>(ff_numCores());
     int nWorkers        = std::max(1, availableCores - 1);
 
-    // Parsing volutamente speculare alla versione OpenMP.
-    // Cosi' posso lanciare benchmark comparabili cambiando solo l'eseguibile.
+    // Parsing volutamente uguale alla versione OpenMP.
     for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
 
@@ -137,12 +101,9 @@ int main(int argc, char* argv[]) {
               << "  tmp          : " << workTmp.str() << "\n"
               << "  PAYLOAD_MAX  : " << PAYLOAD_MAX    << " B\n\n";
 
-    // ─────────────────────────────────────────────────────────────────────────
     // FASE 1: sort parallelo dei chunk → file di run (FastFlow Farm)
-    // ─────────────────────────────────────────────────────────────────────────
-    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
 
-    // ff_sort_to_runs implementa la fase 1 con una farm FastFlow.
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
     std::vector<std::string> runs;
     try {
         runs = ffSortToRuns(inputPath, workTmp.str(), chunkBytes, nWorkers);   // Chiama la funzione ff_sort_to_runs per ordinare i chunk del file di input e salvare le run in file temporanei.
@@ -150,18 +111,14 @@ int main(int argc, char* argv[]) {
         std::cerr << "[WARN] farm FastFlow non avviata correttamente: " << ex.what() << "\n"
                   << "[WARN] fallback Fase 1: sort OpenMP con " << nWorkers
                   << " thread, merge finale FastFlow/multipass.\n";
-
         const std::string fallbackTmp = workTmp.str() + "/fallback_runs";
         std::filesystem::create_directories(fallbackTmp);
-
         const int previousThreads = omp_get_max_threads();
         omp_set_num_threads(std::max(1, nWorkers));
-        runs = sortToRuns(inputPath, fallbackTmp, chunkBytes);
+        runs = sortToRuns(inputPath, fallbackTmp, chunkBytes); 
         omp_set_num_threads(previousThreads);
     }
-
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();   // Fine a contare il tempo.
-
     std::cout << "Fase 1 (sort FF): " << runs.size() << " run create in "
               << seconds(t0, t1) << " s\n";   // Stampa il tempo impiegato per la fase 1.
 
@@ -175,13 +132,9 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FASE 2: K-way merge multi-pass → file di output (FastFlow ParallelFor)
-    // ─────────────────────────────────────────────────────────────────────────
-    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
 
-    // ff_kway_merge usa ff::ParallelFor internamente: nessun conflitto di
-    // CPU affinity con la farm usata nella Fase 1. Un solo runtime FF.
+    // FASE 2: K-way merge multi-pass → file di output (FastFlow ParallelFor)
+    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();   // Inizio a contare il tempo.
     bool deleteRuns = !keepRuns;
     ffKwayMergeMultipass(runs, outputPath, nWorkers, mergeFan, deleteRuns);
 

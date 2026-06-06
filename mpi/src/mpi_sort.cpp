@@ -1,97 +1,25 @@
-// =============================================================================
-// mpi_sort.cpp  –  MergeSort out-of-core distribuito (MPI + OpenMP)
-// =============================================================================
-//
-// Questo file contiene l'orchestratore della versione distribuita del progetto:
-// non implementa direttamente il confronto tra record o il merge elementare,
-// ma coordina i moduli comuni (`chunk_sorter`, `kway_merger`, `record`) su piu'
-// processi MPI.  L'obiettivo e' ordinare file binari piu' grandi della RAM.
-//
-// Formato dei record gestito dai moduli common:
-//   [key: uint64_t, 8 byte][len: uint32_t, 4 byte][payload: len byte]
-//
-// L'ordinamento e' per `key`.  Il payload viene trasportato insieme alla key,
-// ma non viene interpretato da questo file: qui interessa solo preservare
-// record completi e non tagliarli mai durante la divisione tra rank.
-//
-// Utilizzo:
+
+/*
+Modulo che implementa l'orchestratore della versione distribuita del progetto. 
+Non implementa direttamente l’ordinamento dei record di un chunk o il kway merge, 
+ma coordina i moduli comuni chunk_sorter e kway_merger su più processi MPI.
+Utilizzo:
 //   mpirun -n P ./mpi_sort <input> <output> [opzioni]
-//
 //   --chunk-mb  N     Dimensione del blocco in RAM per ogni run locale (default: 256 MB)
 //   --threads   N     Numero di thread OpenMP per rank (default: max hw)
 //   --tmp-dir   PATH  Directory per i file temporanei (default: /scratch)
 //   --merge-fan N     Fan-in massimo del K-way merge locale (default: 64)
-//   --multipass-local-merge
-//                     Usa il merge locale multi-pass semplice dentro ogni rank (default)
-//
-// =============================================================================
-// ARCHITETTURA DISTRIBUITA
-// =============================================================================
-//
-// FASE 1 – Sort locale (parallelo su tutti i rank)
-// ─────────────────────────────────────────────────
-//   1. Rank 0 scorre gli header del file e calcola P+1 offset che cadono
-//      esattamente all'inizio di un record (boundary sicuri).
-//      Poi li distribuisce a tutti con MPI_Bcast.
-//
-//   2. Ogni rank legge solo la propria stripe [myStart, myEnd), la divide
-//      in chunk da chunkMb MB, ordina ogni chunk con OpenMP task, e infine
-//      fonde i chunk con un K-way merge locale → local_sorted.bin.
-//
-// FASE 2 – Binary tree merge distribuito
-// ────────────────────────────────────────
-//   L'albero di riduzione funziona così (esempio con P=4):
-//
-//     step=1:  rank 1 → rank 0      rank 3 → rank 2
-//     step=2:  rank 2 → rank 0
-//
-//   Ad ogni step:
-//     * Il rank "mittente"  invia il file locale al rank "ricevente".
-//     * Il rank "ricevente" esegue un merge out-of-core 2-way tra il suo
-//       file corrente e quello ricevuto.
-//
-//   Ottimizzazione chiave – Pipelining doppio buffer:
-//     L'invio avviene a blocchi (PIPE_CHUNK byte).  Mentre il blocco N è
-//     in transito via MPI_Isend/MPI_Wait, il mittente legge già il blocco
-//     N+1 dal disco.  Il ricevente, simmetricamente, mentre MPI_Irecv
-//     aspetta il blocco N+1, scrive su disco il blocco N.
-//     In questo modo latenza di rete e I/O disco si sovrappongono.
-//
-// Lettura guidata del file:
-//   1. Preparazione MPI/OpenMP e directory temporanee per rank.
-//   2. Calcolo delle stripe sicure sul file di input.
-//   3. Sort locale out-of-core di ogni stripe.
-//   4. Merge distribuito ad albero fino a concentrare tutto su rank 0.
-//   5. Rinomina atomica del risultato finale nel path richiesto.
-//
-// Perché i boundary calcolati da rank 0?
-//   Il formato dei record non ha magic number: un byte del payload potrebbe
-//   sembrare un header valido.  Rank 0 scorre il file record per record e
-//   garantisce che ogni boundary sia un vero inizio-record.
-//
-// Perché merge ad albero e non tutti → rank 0?
-//   Se tutti i rank inviassero a rank 0, il master sarebbe il collo di
-//   bottiglia sia in rete sia in I/O.  Con l'albero, merge e comunicazione
-//   sono distribuiti su più rank.
-// =============================================================================
+//   --multipass-local-merge    Usa il merge locale multi-pass semplice dentro ogni rank (default) 
+*/
 
-// Moduli del progetto:
-//   chunk_sorter.hpp  -> spezza una stripe in chunk, li ordina e produce run.
-//   kway_merger.hpp   -> fonde run gia' ordinate in modo out-of-core.
-//   omp_kway_merger.hpp -> parallelizza il merge locale tra gruppi di run.
-//   temp_dir.hpp      -> crea e pulisce directory temporanee RAII per rank.
 #include "chunk_sorter.hpp"
 #include "kway_merger.hpp"
 #include "omp_kway_merger.hpp"
 #include "temp_dir.hpp"
 
-// Librerie di parallelismo e sistema:
-//   MPI gestisce comunicazione tra processi/rank.
-//   OpenMP gestisce il parallelismo intra-rank durante il sort locale.
 #include <mpi.h>
 #include <omp.h>
 
-// Librerie standard e POSIX usate per parsing, I/O C-style e stat del file.
 #include <iostream>
 #include <string>
 #include <vector>
@@ -545,30 +473,17 @@ int main(
                   << " run create in " << (t1b - t1a) << " s\n";  //Il rank 0 stampa il tempo impiegato per la fase 1
 
 
-    /* =========================================================================
+    /* 
        FASE 2: Binary tree merge distribuito: La Fase 1 ha già prodotto, su ogni processo MPI, un file locale ordinato:
        Quindi all’inizio ogni rank possiede il proprio pezzo ordinato del dataset.
        L’obiettivo della Fase 2 è fondere tutti questi file ordinati fino ad ottenere un unico file ordinato finale, che sarà posseduto dal rank 0.
        Il merge avviene come un albero binario.
        Esempio con 8 processi:
-       Step 1:
-       rank 1 -> rank 0
-       rank 3 -> rank 2
-       rank 5 -> rank 4
-       rank 7 -> rank 6
-       
-       Step 2:
-       rank 2 -> rank 0
-       rank 6 -> rank 4
-       
-       Step 4:
-       rank 4 -> rank 0
-       Alla fine:
-       rank 0 contiene tutto il dataset ordinato
-       Ogni sender, dopo aver inviato il proprio file, esce di fatto dal merge. 
-       Ogni receiver invece riceve un file, lo fonde con il proprio, e continua al livello successivo.    
-    
-       ============================================================================= */
+       Step 1: rank 1 -> rank 0 rank 3 -> rank 2  rank 5 -> rank 4 rank 7 -> rank 6
+       Step 2: rank 2 -> rank 0 rank 6 -> rank 4
+       Step 4: rank 4 -> rank 0
+       Alla fine: rank 0 contiene tutto il dataset ordinato. Ogni sender, dopo aver inviato il proprio file, esce di fatto dal merge. Ogni receiver invece riceve un file, lo fonde con il proprio, e continua al livello successivo.    
+    */
     double t2a = wall(); // Avvia il cronometro per la Fase 2
     
     // File che contiene il risultato parziale del merging, che ad ogni iterazione viene aggiornato. All'inizio sarà solo il file locale ordinato.
@@ -588,7 +503,6 @@ int main(
             Se step = 2, allora: groupSize = 4; I gruppi sono: [0,1,2,3] [4,5,6,7]
             Se step = 4, allora: groupSize = 8; Il gruppo è: [0,1,2,3,4,5,6,7]
         */
-
         const int groupSize = step * 2; // Dimensione del gruppo in questo step. Ad ogni step il gruppo raddoppia.
         const int myGroup = (rank / groupSize) * groupSize; // primo rank del gruppo del processo attuale, cioè il receiver principale di quel gruppo.
         
@@ -602,7 +516,7 @@ int main(
         if (!isReceiver && !isSender) continue;
 
         if (isSender) {
-            // ── Sender ────────────────────────────────────────────────────────
+            // Sender
             // Crea tag specifici per lo step che eviteranno incroci con messaggi spaiati in reti asincrone
             const int tagSize = 100 + step;  // Tag identificativo unico per inviare la size del file in questo step
             const int tagData = 200 + step;  // Tag identificativo unico per inviare il file in questo step
@@ -617,7 +531,6 @@ int main(
             currentFile = ""; // File svuotato per indicare la terminazione
 
         } else { // isReceiver
-            // ── Receiver ──────────────────────────────────────────────────────
             const int sender = rank + step; // Calcola l'id esatto del sender preposto ad inviare in questo step
 
             // Se il numProcs totale non è in potenza del 2, il receiver ignora step vuoti perché non esisterebbe alcun sender
@@ -650,7 +563,7 @@ int main(
     if (rank == 0)
         std::cout << "Fase 2 (merge distribuito): " << (t2b - t2a) << " s\n";
 
-    // ── Output finale (solo rank 0) ───────────────────────────────────────────
+    // Output finale (solo rank 0)
     // Il master rank conclude avendo il path del file finale all'interno di currentFile
     if (rank == 0) {
         // Rinomina il currentFile nel file di output

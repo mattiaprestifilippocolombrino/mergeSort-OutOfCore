@@ -1,30 +1,16 @@
 #pragma once
-// =============================================================================
-// ff_chunk_sorter.hpp - Fase 1 con FastFlow
-// =============================================================================
-//
-// Questa e' la stessa fase logica di chunk_sorter.hpp, ma implementata con una
-// farm FastFlow invece che con task OpenMP.
-//
-// Architettura:
-//
-//   Emitter
-//      legge chunk dal file di input
-//      crea ChunkData
-//      invia ChunkData ai worker
-//
-//   Worker 0..W-1
-//      riceve un ChunkData
-//      chiama sort_chunk_and_write_run
-//      scrive una run ordinata su disco
-//
-// Non uso un collector perche' non ho bisogno di raccogliere risultati in RAM:
-// ogni worker produce direttamente un file temporaneo. Questo mantiene semplice
-// il codice e riduce passaggi inutili di dati nel framework.
-//
-// Anche qui resta valida l'idea piu' importante: sort su indice leggero, non sui
-// payload. La funzione sort_chunk_and_write_run e' condivisa con OpenMP.
-// =============================================================================
+
+/*
+Questa e' la stessa fase logica di chunk_sorter.hpp, ma implementata con una 
+farm FastFlow invece che con task OpenMP.
+Architettura: Emitter-->legge chunk dal file di input-->crea ChunkData--> invia ChunkData ai worker
+Worker 0..W-1-->riceve un ChunkData--->chiama sort_chunk_and_write_run-->scrive una run ordinata su disco
+Si ha un Emitter che legge il file di input, costruisce i chunk e li invia ai worker.
+Si ha una serie di Worker paralleli. Ogni Worker riceve un chunk, richiama la stessa funzione di ordinamento (sort_chunk_and_write_run()) usata dalla versione OpenMP, e scrive una run ordinata su disco.
+Non c'e' un collector, perche' ogni worker produce direttamente la propria run ordinata.
+
+*/
+
 
 #include "record.hpp"
 #include "chunk_sorter.hpp"   // ChunkData, sort_chunk_and_write_run
@@ -264,7 +250,7 @@ inline std::vector<std::string> ffSortToRuns(
     std::fclose(fin);  //chiusura file di input.
 
     if (errorFlag.load()) {  //controllo se c'e' stato un errore in qualche worker. Se si, viene lanciata un'eccezione.
-        throw std::runtime_error("ff_sort_to_runs: errore in un worker FastFlow");  //lancio eccezione se c'e' stato un errore in qualche worker.
+        throw std::runtime_error("ff_sort_to_runs: errore in un worker FastFlow");  
     }
 
     return runPaths;  //ritorno del vettore contenente i path delle run generate.

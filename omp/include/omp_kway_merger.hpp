@@ -64,6 +64,7 @@ inline void ompKwayMergeMultipass(
         mergeFan = 2;
     }
 
+    // Stampa su stdeer i parametri ricevuti, se attivato il parametro verbose
     const bool verbose = mergeVerboseEnabled();
     if (verbose) {
         std::fprintf(stderr,
@@ -98,7 +99,7 @@ inline void ompKwayMergeMultipass(
 
         // Numero di gruppi indipendenti in questa passata. Es. se merge_fan = 64 e R = 50, num_groups = 1.
         int numGroups = (R + mergeFan - 1) / mergeFan;
-        if (verbose) {
+        if (verbose) { //Stampa di debug se attivo verbose
             std::fprintf(stderr,
                          "[merge] level=%d runs=%d groups=%d tasks=%d mode=%s\n",
                          pass, R, numGroups,
